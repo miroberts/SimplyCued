@@ -2,7 +2,8 @@ import bimpy
 import cv2
 import os 
 import time
-import pyopengl
+#import pyopengl
+import psutil 
 from pathlib import Path
 from screeninfo import get_monitors
 
@@ -18,6 +19,10 @@ from screeninfo import get_monitors
     #     self.soundcap = wave.open(audioclip, 'r')
     # except:
     #     self.soundcap = None
+
+class MemoryManager():
+    process = psutil.Process(os.getpid())
+    print(process.memory_info()) #pmem(rss=15491072, vms=84025344, shared=5206016, text=2555904, lib=0, data=9891840, dirty=0)
 
 class Clock():
     starttime = time.perf_counter()
@@ -43,7 +48,7 @@ class CuedVideo():
             self.videopath = videopath
             self.name = os.path.basename(videopath)
             self.vidcap = cv2.VideoCapture(videopath)
-            self.fps = self.vidcap.get(cv2.CAP_PROP_FPS)      # OpenCV2 version 2 used "CV_CAP_PROP_FPS"
+            self.fps = (1/self.vidcap.get(cv2.CAP_PROP_FPS))
             self.frame_count = int(self.vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
             self.duration = self.frame_count/self.fps
             ret, im = self.vidcap.read()
@@ -56,46 +61,29 @@ class CuedVideo():
             return -1
         if not self.vidcap.isOpened():
             return -1
-    def nextframe(self,t,frame_number):
+    def nextframe(self,frame_number):
         # frame-by-frame
-
-        if self.Playing(t, frame_number):
+        if frame_number < self.frame_count:
             self.vidcap.set(cv2.CAP_PROP_POS_FRAMES, frame_number-1)
             ret, frame = self.vidcap.read()
-            if ret:
-                self.framecount=self.framecount+1          
+            if ret:       
                 return frame
             else:
-                frame = 0
                 return None
         else: 
             return None
     def CloseVideo(self):
-        self.vidcap.release()
-    def Playing(self, t, f):
-        if type(t) == float:
-            if f < self.frame_count:
-                return True
-            else: 
-                return False
-        else:
-            return False
-def RemoveVideo(viname, viid):
-    TheSchedular.removeVideo(viid)
-    if viname not in TheSchedular.GetVideoList() and viname in Videos.keys() and not viname == '':
-        Videos[viname].CloseVideo()
-        del Videos[viname]
+        self.vidcap.release()       
 
 class Schedular():
     # Video List
     Videos = dict()
-    startvideo = False
     runclock = None
     FullRunTime = 0
     VideoCue = dict()
     index = 0
     def CueVideo(self, videopath):
-        cuedvideo = ()
+        cuedvideo = CuedVideo()
         ret = cuedvideo.LoadVideo(videopath)
         if not (ret == -1):
             self.Videos[cuedvideo.name] = cuedvideo
@@ -105,82 +93,100 @@ class Schedular():
             return True
     def ShedualVideo(self,videoname):
         if videoname not in self.VideoCue.keys():
-            self.VideoCue[videoname] = {'index':[self.index]}
+            self.VideoCue[videoname] = {"{0}".format(self.index):{'starttime':self.FullRunTime}}
         else:
-            self.VideoCue[videoname]['index'].append(self.index)
-        self.VideoCue[videoname]["Frames"] = {"{0}".format(self.index):0}
-        self.VideoCue[videoname]["starttime"] = {"{0}".format(self.index):self.FullRunTime}
+            self.VideoCue[videoname]["{0}".format(self.index)] = {'starttime':self.FullRunTime}
         self.index = self.index+1
-        self.FullRunTime = self.FullRunTime + self.VideoCue[videoname].duration
+        self.FullRunTime = self.FullRunTime + self.Videos[videoname].duration
     def MoveVideo(self, Source, Destination):
         newlist = []
         Destname = []
-        tempframe = None
+        tempinfo = None
         name = ""
-        for ind in self.VideoCue.keys():
-            for key in key
-            newlist.extend(self.VideoCue[key]['index'])
-            if Destination in self.VideoCue[key]['index']:
+        for key in self.VideoCue.keys():
+            newlist.extend(self.VideoCue[key].keys())
+            if "{0}".format(Destination) in self.VideoCue[key].keys():
                 Destname.append(key)
-            elif Source in self.VideoCue[key]['index']:
+            elif "{0}".format(Source) in self.VideoCue[key].keys():
                 name = key
-        frame = self.VideoCue[name]["Frames"]["{0}".format(Source)]
-        del self.VideoCue[name]["Frames"]["{0}".format(Source)]
-        self.VideoCue[name]['index'] = [x for x in self.VideoCue[name]['index'] if not x == Source]
+        tempinfo = self.VideoCue[name].pop("{0}".format(Source))
         if Source < Destination:
             for key in self.VideoCue.keys():
-                if not key == name and len(self.VideoCue[key]['index']) > 0:
-                    for fra in self.VideoCue[key]['Frames'].keys():
-                        if int(fra) <= Destination and int(fra) > Source and int(fra) > 0:
-                            self.VideoCue[key]['Frames']["{0}".format(int(fra)-1)] = self.VideoCue[key]['Frames'].pop(fra)
+                newone = 0
+                tempone = {}
+                for ind in self.VideoCue[key].keys():
+                    if int(ind) <= Destination and int(ind) > Source and int(ind) > 0:
+                        newone = int(ind)-1
+                        tempone["{0}".format(newone)] = self.VideoCue[key][ind]
+                    else:
+                        tempone["{0}".format(ind)] = self.VideoCue[key][ind]
+                self.VideoCue[key] = tempone
         if Source > Destination:
             for key in self.VideoCue.keys():
-                if not key == name and len(self.VideoCue[key]['index']) > 0:
-                    for fra in self.VideoCue[key]['Frames'].keys():
-                        if int(fra) >= Destination and int(fra) < Source and int(fra) < len(newlist):
-                            newone = int(fra)+1
-                            self.VideoCue[key]['Frames']["{0}".format(newone)] =  self.VideoCue[key]['Frames'].pop(fra)
+                newone = 0
+                tempone = {}
+                for ind in self.VideoCue[key].keys():
+                    if int(ind) >= Destination and int(ind) < Source and int(ind) < len(newlist):
+                        newone = int(ind)+1
+                        tempone["{0}".format(newone)] = self.VideoCue[key][ind]
+                    else:
+                        tempone["{0}".format(ind)] = self.VideoCue[key][ind]
+                self.VideoCue[key] =  tempone
         # ##Test
-        newlist.remove(Destination)
-        listtmp = []
-        for x in self.VideoCue.keys():
-            listtmp.extend([int(i) for i in self.VideoCue[x]["Frames"].keys()])
-
-        if len(set(newlist) - set(listtmp)) > 0:
-            tem = 0
+        # newlist.remove("{0}".format(Destination))
+        # listtmp = []
+        # for x in self.VideoCue.keys():
+        #     listtmp.extend([i for i in self.VideoCue[x].keys()])
+        # if len(set(newlist) - set(listtmp)) > 0:
+        #     tem = 0
         # ####
-
-        if name not in self.VideoCue.keys():
-            self.VideoCue[name]['index'] = [Destination]
-        else:
-            if Destination not in self.VideoCue[name]['index']:
-                self.VideoCue[name]['index'].append(Destination)
-        self.VideoCue[name]["Frames"]["{0}".format(Destination)] = tempframe
-        if len(self.VideoCue[name]['index']) < 1:
+        self.VideoCue[name]["{0}".format(Destination)] = tempinfo
+        if len(self.VideoCue[name].keys()) < 1:
             self.removeVideoempty(name)
     def GetVideoList(self):
         runing = dict()
         for vid in self.VideoCue.keys():
-            for x in self.VideoCue[vid]['index']:
+            for x in self.VideoCue[vid].keys():
                 runing[x] = vid
         ret = []
         for i in range(len(runing)):
-            ret.append(runing[i])
+            ret.append(runing["{0}".format(i)])
         return ret
-    def Seek(self, vid, vname, fra):
-        self.VideoCue[vname]['Frames']["{0}".format(vid)] = fra
+    def Seek(self, t):
+        self.runclock.playtime = t
+        self.runclock.starttime = t
     def GetVideoPlaylist(self):
-        playingVideos = [x for x in self.Videos if self.Videos[x].Playing(fra) and if runclock.gettime() >= self.VideoCue[vname][vid]["starttime"] and not runclock.gettime() > (self.VideoCue[vname][vid]["starttime"] + self.Videos[vname].duration)]
+        playingVideos = {}
+        for x in self.GetVideoList():
+            for i in self.VideoCue[x].keys():
+                f = self.runclock.gettime() - self.VideoCue[x][i]['starttime']
+                if f >=0 and f <= self.Videos[x].frame_count:
+                    f = f * self.Videos[x].fps
+                    im, h, w = self.GetNextFrame(x,int(f))
+                    playingVideos[i] = {"im":im,"h":h,"w":w}
+                    if self.VideoCue[x][i].get('VLP'):
+                        playingVideos[i]["VLP"] = self.VideoCue[x][i]['VLP']
+            temptime = f/self.runclock.gettime()
+            bimpy.text("FPS {0}".format(temptime))
+            bimpy.text("FPS {0}".format(self.Videos[x].fps))
         return playingVideos
     def removeVideo(self,viid):
         removekey = []
         if viid is not None:
             for key in self.VideoCue.keys():
-                if viid in self.VideoCue[key]['index']:
-                    self.VideoCue[key]['index'].remove(viid)
-                self.VideoCue[key]['index'] = [(x-1) if x > viid else x for x in self.VideoCue[key]['index']]
+                if viid in self.VideoCue[key].keys():
+                    del self.VideoCue[key][viid]
+                newone = 0
+                tempone = {}
+                for ind in self.VideoCue[key].keys():
+                    if int(ind) > viid and int(ind) > 0:
+                        newone = int(ind)-1
+                        tempone["{0}".format(newone)] = self.VideoCue[key][ind]
+                    else:
+                        tempone["{0}".format(ind)] = self.VideoCue[key][ind]
+                self.VideoCue[key] = tempone
             for key in self.VideoCue.keys():
-                if not len(self.VideoCue[key]['index'])>0:
+                if not len(self.VideoCue[key].keys())>0:
                     removekey.append(key)
             for key in removekey:
                 self.removeVideoempty(key)
@@ -189,24 +195,23 @@ class Schedular():
     def removeVideoempty(self,viname):
         if not viname == '':
             del self.VideoCue[viname]
+            del self.Videos[viname]
     def active(self):
         if len(self.VideoCue.keys()) > 0:
             return True
         else:
             return False
-    def RestVideos(self):
-        for x in self.Videos.keys():
-            for i in self.Videos[]
-            self.Seek(pl["id"], pl["Name"],0) self.Videos[x]
     def GetNextFrame(self, n, f):
-        frame = self.Videos[n].nextframe(runclock.gettime(),f)
+        frame = self.Videos[n].nextframe(f)
         h, w, channels = frame.shape
         im = bimpy.Image(frame)
         return im, h, w
     def StartClock(self):
         self.runclock = Clock()
     def SetStartTime(self,vid, vname, t):
-        self.Videos[vname][''].StartTime()
+        self.VideoCue[vname][vid]['starttime']= t
+    def gettime(self):
+        self.runclock.gettime()
 
 
 #ImGUI Verables
@@ -231,6 +236,7 @@ Screen = None
 path = os.path.expanduser("~")
 lastpath = [os.path.expanduser("~")]
 dirlist = []
+startvideo = False
 
 #Navication
 search = "*"
@@ -279,20 +285,14 @@ while(not ctx.should_close()):
     if TheSchedular.active():
         bimpy.same_line()
         if bimpy.button("Delete Video"):
-            RemoveVideo(SelectedVideo.value, selectedindex)
+            TheSchedular.removeVideo(selectedindex)
             selectedindex = None
         bimpy.same_line(spacing_w=50)
-        if bimpy.button("play"):
-            PlayVideo.value = True
-            startvideo=True
-        if PlayVideo.value:
-            bimpy.same_line()
-            if bimpy.button("Pause"):
-                PlayVideo.value = False
-            bimpy.same_line()
-            if bimpy.button("Stop"):
-                PlayVideo.value = False
-                TheSchedular.RestVideos()
+        if not PlayVideo.value:
+            if bimpy.button("play"):
+                PlayVideo.value = True
+                startvideo = True
+                Pause.value = False
     bimpy.begin_child("Cue", border=True)
 
     if not TheSchedular.active():
@@ -361,33 +361,39 @@ while(not ctx.should_close()):
     bimpy.end()
 
     if PlayVideo.value:
-        if TheSchedular.active() and playing < len(TheSchedular.GetVideoPlaylist()):
-            if startvideo:
-                TheSchedular.StartClock()
-                startvideo = False
+        if startvideo:
+            startvideo = False
+            TheSchedular.StartClock()
+        if TheSchedular.active() and playing < len(TheSchedular.GetVideoList()):
+            
             pl = 0
-            for pl in TheSchedular.GetVideoPlaylist():
+            tmlist = TheSchedular.GetVideoPlaylist()
+            for pl in tmlist:
                 if not Pause.value:
-                    Screen, height. width = TheSchedular.GetNextFrame(pl["Name"],pl["Frame"])
-                    ctx.init(height, width, "Image")
+                    Screen = tmlist[pl]['im'] 
+                    ctx.init(tmlist[pl]['h'], tmlist[pl]['w'], "Image")
                 if Screen: 
-                    bimpy.set_next_window_pos(window.value, bimpy.Condition.Once)
-                    bimpy.set_next_window_size(windowsize.value, bimpy.Condition.Once)
+                    bimpy.set_next_window_pos(window, bimpy.Condition.Once)
+                    bimpy.set_next_window_size(windowsize, bimpy.Condition.Once)
                     bimpy.begin("PlayVideo",PlayVideo, flags=(bimpy.WindowFlags.NoTitleBar))
                     bimpy.image(Screen)
                 else:
                     playing = playing + 1                                        
 
-            if not playing < len(TheSchedular.GetVideoPlaylist()):
-                if bimpy.button("Restart"):
-                    TheSchedular.RestVideos()
-                    playing = 0
-                if bimpy.button("Stop"):
-                    TheSchedular.RestVideos()
-                    PlayVideo.value = False
-                    playing = 0
-            if bimpy.invisible_button("Pause/Play",windowsize.value):
+            if playing < len(tmlist):
                 if Pause.value:
+                    if bimpy.button("Restart"):
+                        startvideo=True
+                        Pause.value = False
+                        playing = 0
+                        bimpy.same_line()
+                    if bimpy.button("Stop"):
+                        startvideo=True
+                        PlayVideo.value = False
+                        playing = 0
+            if bimpy.invisible_button("Pause/Play",windowsize):
+                if Pause.value:
+                    PlayVideo.value = True
                     Pause.value = False
                 else:
                     Pause.value = True
@@ -414,7 +420,7 @@ while(not ctx.should_close()):
             rescan = True
         bimpy.same_line()    
         if bimpy.button("<-"):
-            lastpath.append((path)
+            lastpath.append(path)
             path = os.path.split(path)[0]
             rescan = True
         bimpy.same_line()
@@ -467,7 +473,7 @@ while(not ctx.should_close()):
         if Error:
             bimpy.begin("Error",bimpy.Bool(Error), flags=(bimpy.WindowFlags.NoResize|bimpy.WindowFlags.NoMove|bimpy.WindowFlags.NoTitleBar))
             bimpy.text("{0}".format("Could not load file"))
-            if bimpy.button("OK")CuedVideo:
+            if bimpy.button("OK"):
                 Error = False
             bimpy.end()
         bimpy.end()
