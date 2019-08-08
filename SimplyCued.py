@@ -20,18 +20,28 @@ from screeninfo import get_monitors
     # except:
     #     self.soundcap = None
 
-class MemoryManager():
-    process = psutil.Process(os.getpid())
-    print(process.memory_info()) #pmem(rss=15491072, vms=84025344, shared=5206016, text=2555904, lib=0, data=9891840, dirty=0)
+# class MemoryManager():
+#     process = psutil.Process(os.getpid())
+#     print(process.memory_info()) #pmem(rss=15491072, vms=84025344, shared=5206016, text=2555904, lib=0, data=9891840, dirty=0)
 
 class Clock():
-    starttime = time.perf_counter()
+    starttime = time.time()
     playtime = 0
     def gettime(self):
-        self.playtime = self.playtime + time.perf_counter() - self.starttime
+        self.playtime = self.playtime + time.time() - self.starttime
         return self.playtime
-    def pause(self):
-        self.starttime = time.perf_counter()
+    def play(self):
+        self.starttime = time.time()
+
+class CuingBlock():
+    # play on mouse click or key, 
+    # stop on mouse click or key, 
+    # play n number of times, and 
+    # play for n seconds or milliseconds . 
+    Cuetype = None
+    kwargs = {}
+    def SetCue(self, typ, **kwargs):
+        self.Cuetyep = typ
 
 class CuedVideo():
     vidcap = None
@@ -48,9 +58,9 @@ class CuedVideo():
             self.videopath = videopath
             self.name = os.path.basename(videopath)
             self.vidcap = cv2.VideoCapture(videopath)
-            self.fps = (1/self.vidcap.get(cv2.CAP_PROP_FPS))
+            self.fps = self.vidcap.get(cv2.CAP_PROP_FPS)
             self.frame_count = int(self.vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.duration = self.frame_count/self.fps
+            self.duration = self.frame_count/self.vidcap.get(cv2.CAP_PROP_FPS)
             ret, im = self.vidcap.read()
             if ret:
                 self.firstimage = cv2.resize(im,(1024,1024),interpolation=cv2.INTER_AREA)
@@ -76,6 +86,7 @@ class CuedVideo():
         self.vidcap.release()       
 
 class Schedular():
+    framedone = []
     # Video List
     Videos = dict()
     runclock = None
@@ -154,21 +165,21 @@ class Schedular():
         return ret
     def Seek(self, t):
         self.runclock.playtime = t
-        self.runclock.starttime = t
+        self.runclock.play()
     def GetVideoPlaylist(self):
         playingVideos = {}
         for x in self.GetVideoList():
             for i in self.VideoCue[x].keys():
-                f = self.runclock.gettime() - self.VideoCue[x][i]['starttime']
+                f = int(self.runclock.gettime() - self.VideoCue[x][i]['starttime'] * self.Videos[x].fps)
+                self.framedone.append(f)
                 if f >=0 and f <= self.Videos[x].frame_count:
-                    f = f * self.Videos[x].fps
-                    im, h, w = self.GetNextFrame(x,int(f))
+                    im, h, w = self.GetNextFrame(x,f)
                     playingVideos[i] = {"im":im,"h":h,"w":w}
                     if self.VideoCue[x][i].get('VLP'):
                         playingVideos[i]["VLP"] = self.VideoCue[x][i]['VLP']
-            temptime = f/self.runclock.gettime()
-            bimpy.text("FPS {0}".format(temptime))
-            bimpy.text("FPS {0}".format(self.Videos[x].fps))
+            bimpy.text("Frames:{0}".format(f))
+        if len(playingVideos)> 1:
+            alk = False
         return playingVideos
     def removeVideo(self,viid):
         removekey = []
@@ -210,8 +221,12 @@ class Schedular():
         self.runclock = Clock()
     def SetStartTime(self,vid, vname, t):
         self.VideoCue[vname][vid]['starttime']= t
-    def gettime(self):
-        self.runclock.gettime()
+    def PlayClock(self):
+        self.runclock.play() #Pause
+    def cuevplblock(self, videoid,type,starttime,**kwargs):
+        #Where kwargs holds the info needed for the type of VPLblock being made. 
+        #The result is returned as success or not. 
+        return True
 
 
 #ImGUI Verables
@@ -227,6 +242,8 @@ payload = bimpy.Int()
 Pause = bimpy.Bool(False)
 window = bimpy.Vec2(20,20)
 windowsize = bimpy.Vec2(200, 200)
+searchwindow = bimpy.Vec2(20,20)
+searchwindowsize = bimpy.Vec2(200, 200)
 
 #Screen
 # ##### More then one screen?
@@ -359,8 +376,8 @@ while(not ctx.should_close()):
     
     bimpy.end_child()
     bimpy.end()
-
     if PlayVideo.value:
+        
         if startvideo:
             startvideo = False
             TheSchedular.StartClock()
@@ -368,6 +385,8 @@ while(not ctx.should_close()):
             
             pl = 0
             tmlist = TheSchedular.GetVideoPlaylist()
+            if len(tmlist) == 0:
+                aslkfj = False
             for pl in tmlist:
                 if not Pause.value:
                     Screen = tmlist[pl]['im'] 
@@ -395,6 +414,7 @@ while(not ctx.should_close()):
                 if Pause.value:
                     PlayVideo.value = True
                     Pause.value = False
+                    TheSchedular.PlayClock()
                 else:
                     Pause.value = True
         bimpy.end()
@@ -409,8 +429,8 @@ while(not ctx.should_close()):
     if SearchFile.value:
         videopath = None
         ret = -1
-        bimpy.set_next_window_pos(bimpy.Vec2(850, 20), bimpy.Condition.Once)
-        bimpy.set_next_window_size(bimpy.Vec2(600, 400), bimpy.Condition.Once)
+        bimpy.set_next_window_pos(searchwindow, bimpy.Condition.Once)
+        bimpy.set_next_window_size(searchwindowsize, bimpy.Condition.Once)
         bimpy.begin("Search", SearchFile)
         if rescan:
             dirlist= Path(path).glob(search)
