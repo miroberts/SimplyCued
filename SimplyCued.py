@@ -24,14 +24,6 @@ from screeninfo import get_monitors
 #     process = psutil.Process(os.getpid())
 #     print(process.memory_info()) #pmem(rss=15491072, vms=84025344, shared=5206016, text=2555904, lib=0, data=9891840, dirty=0)
 
-class Clock():
-    starttime = time.time()
-    playtime = 0
-    def gettime(self):
-        self.playtime = self.playtime + time.time() - self.starttime
-        return self.playtime
-    def play(self):
-        self.starttime = time.time()
 
 class CuingBlock():
     # play on mouse click or key, 
@@ -58,7 +50,7 @@ class CuedVideo():
             self.videopath = videopath
             self.name = os.path.basename(videopath)
             self.vidcap = cv2.VideoCapture(videopath)
-            self.fps = (1000/self.vidcap.get(cv2.CAP_PROP_FPS))
+            self.fps = self.vidcap.get(cv2.CAP_PROP_FPS)
             self.frame_count = int(self.vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
             self.duration = self.frame_count/self.vidcap.get(cv2.CAP_PROP_FPS)
             ret, im = self.vidcap.read()
@@ -86,10 +78,11 @@ class CuedVideo():
         self.vidcap.release()       
 
 class Schedular():
+    starttime = time.time()
+    playtime = 0
     framedone = []
     # Video List
     Videos = dict()
-    runclock = None
     FullRunTime = 0
     VideoCue = dict()
     index = 0
@@ -110,7 +103,7 @@ class Schedular():
         else:
             self.VideoCue[videoname]["{0}".format(self.index)] = {'starttime':self.FullRunTime}
         self.index = self.index+1
-        self.FullRunTime = self.FullRunTime + self.Videos[videoname].duration* 1000
+        self.FullRunTime = self.FullRunTime + self.Videos[videoname].duration
     def MoveVideo(self, Source, Destination):
         newlist = []
         Destname = []
@@ -161,36 +154,36 @@ class Schedular():
         for vid in self.VideoCue.keys():
             for x in self.VideoCue[vid].keys():
                 runing[x] = vid
-
+        ret = []
         for i in range(len(runing)):
             ret.append(runing["{0}".format(i)])
         return ret
     def Seek(self, t):
-        self.runclock.playtime = t
-        self.runclock.play()
+        self.playtime = t
+        self.PlayClock()
     def GetVideoPlaylist(self):
-        playingVideos = {}
-        for x in self.GetVideoList():
+        self.playtime = self.playtime + time.time() - self.starttime
+        for x in self.VideoCue.keys():
             for i in self.VideoCue[x].keys():
-                tim = self.runclock.gettime()
-                f = tim - self.VideoCue[x][i]['starttime'] * self.Videos[x].fps
+                f = int((self.playtime - self.VideoCue[x][i]['starttime']) * self.Videos[x].fps)
                 self.framedone.append(f)
                 if f >=0 and f <= self.Videos[x].frame_count:
-                    im, h, w = self.GetNextFrame(x,int(f))
-                    playingVideos[i] = {"im":im,"h":h,"w":w}
-                    if self.VideoCue[x][i].get('VLP'):
-                        playingVideos[i]["VLP"] = self.VideoCue[x][i]['VLP']
-            bimpy.text("Frame:{0} = Gettime:{1} - starttime:{2} * fps:{3}\nLastFrame:{4} Diff{5}".format(f,tim, self.VideoCue[x][i]['starttime'], self.Videos[x].fps,self.test,(f-self.test)))
+                    frame = self.Videos[x].nextframe(f)
+                    h, w, channels = frame.shape
+                    im = bimpy.Image(frame)
+                    if im:
+                        ctx.init(h, w, "Image")
+                        bimpy.image(im) 
+            bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(f, self.test,(f-self.test)))
+            bimpy.text('{0}'.format(self.framedone))
             self.test = f
-        if len(playingVideos)> 1:
-            alk = False
-        return playingVideos
+        return True
     def removeVideo(self,viid):
         removekey = []
         if viid is not None:
             for key in self.VideoCue.keys():
-                if viid in self.VideoCue[key].keys():
-                    del self.VideoCue[key][viid]
+                if "{0}".format(viid) in self.VideoCue[key].keys():
+                    del self.VideoCue[key]["{0}".format(viid)]
                 newone = 0
                 tempone = {}
                 for ind in self.VideoCue[key].keys():
@@ -216,19 +209,16 @@ class Schedular():
             return True
         else:
             return False
-    def GetNextFrame(self, n, f):
-        frame = self.Videos[n].nextframe(f)
-        h, w, channels = frame.shape
-        im = bimpy.Image(frame)
-        return im, h, w
     def StartClock(self):
-        self.runclock = Clock()
+        self.starttime = time.time()
+        self.playtime = 0
     def SetStartTime(self,vid, vname, t):
         self.VideoCue[vname][vid]['starttime']= t
     def PlayClock(self):
-        self.runclock.play() #Pause
+        self.starttime = time.time() #Pause
     def ActivePlay(self):
-        return self.runclock.gettime()<self.FullRunTime
+        self.playtime = self.playtime + time.time() - self.starttime
+        return self.playtime<self.FullRunTime+self.starttime
     def cuevplblock(self, videoid,type,starttime,**kwargs):
         #Where kwargs holds the info needed for the type of VPLblock being made. 
         #The result is returned as success or not. 
@@ -268,6 +258,8 @@ Error = False
 selectedindex = None
 editdict= dict(ViewPort=bimpy.Bool(False), Mask=bimpy.Bool(False), CodeBlocks=bimpy.Bool(False))
 
+#testvars
+startT = 0
 
 TheSchedular = Schedular()
 
@@ -284,6 +276,7 @@ while(not ctx.should_close()):
         bimpy.end_menu()
     if menu:
         bimpy.end_menu_bar()
+    bimpy.text("Time:{0}".format(time.time()))
     if bimpy.button("Add Test Video"):
         videopath = "D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv"
         cuedvideo = CuedVideo()
@@ -377,20 +370,18 @@ while(not ctx.should_close()):
         bimpy.set_next_window_pos(window, bimpy.Condition.Once)
         bimpy.set_next_window_size(windowsize, bimpy.Condition.Once)
         bimpy.begin("PlayVideo",PlayVideo, flags=(bimpy.WindowFlags.NoTitleBar))
+        bimpy.text('Fake Frame: {0}  {1}'.format(int((time.time() - startT) * 30), int((time.time() - startT) * 60)))
         if startvideo:
             startvideo = False
             TheSchedular.StartClock()
+            startT = time.time()
         if TheSchedular.active() and TheSchedular.ActivePlay():
-            
             pl = 0
             tmlist = TheSchedular.GetVideoPlaylist()
-            for pl in tmlist:
-                if not Pause.value:
-                    Screen = tmlist[pl]['im'] 
-                    ctx.init(tmlist[pl]['h'], tmlist[pl]['w'], "Image")
-                if Screen: 
-                    bimpy.image(Screen)                                       
-
+            if not tmlist:
+                startvideo=True
+                Pause.value = False
+                PlayVideo.value = False      
             if Pause.value:
                 if bimpy.button("Restart"):
                     startvideo=True
@@ -407,10 +398,10 @@ while(not ctx.should_close()):
                     TheSchedular.PlayClock()
                 else:
                     Pause.value = True
-            if 0 == len(tmlist) and TheSchedular.ActivePlay():
-                startvideo=True
-                PlayVideo.value = False
-                Pause.value = False
+        if not TheSchedular.ActivePlay():
+            startvideo=True
+            PlayVideo.value = False
+            Pause.value = False
         bimpy.end()
 
     if ShowGuide.value:
