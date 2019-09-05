@@ -2,8 +2,9 @@ import bimpy
 import cv2
 import os 
 import time
-#import pyopengl
-import psutil 
+# import OpenGL
+# import psutil 
+import dill   #save and load data in memory
 from pathlib import Path
 from screeninfo import get_monitors
 
@@ -90,96 +91,155 @@ class Schedular():
     framedone = []
     # Video List
     keylist = []
-
+    cuekeylist = []
+    Cueindexlist = []
+    indexlist = []
     FullRunTime = 0
-    VideoCue = dict()
+    Videodict = dict()
+    Cues = dict()
     index = 0
+    Cueindex = 0
     ##Test
     test = 0
-    def CueVideo(self, videopath):
+    def initCue(self, startcon, name, data):
+        self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":name, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Data":data}
+        self.Cueindex = self.Cueindex+1
+        self.rebuildCuekeylist()
+
+    def initVideo(self, videopath):
         cuedvideo = CuedVideo()
         ret = cuedvideo.LoadVideo(videopath)
         if not (ret == -1):
-            self.VideoCue["{0}{1}".format(cuedvideo.name, self.index)] = {"Index":self.index, 'Name':cuedvideo.name,'starttime':self.FullRunTime, 'Video': cuedvideo}
+            self.Videodict["{0}{1}".format(cuedvideo.name, self.index)] = {'Index':self.index, 'Name':cuedvideo.name, 'Filters':None, 'State':0, 'StartTime':None, 'filters':None, 'Video': cuedvideo}
             self.index = self.index+1
             self.FullRunTime = self.FullRunTime + cuedvideo.duration
-            self.rebuildkeylist()
+            self.rebuildVideokeylist()
             return False
         else:
             return True
         
     def MoveVideo(self, Source, Destination):
         name = ""
-        keys = self.VideoCue.keys()
+        keys = self.Videodict.keys()
         for key in keys:
-            if Source == self.VideoCue[key]['Index']:
+            if Source == self.Videodict[key]['Index']:
                 name = key
         if Source < Destination:
             for key in keys:
-                if self.VideoCue[key]['Index'] <= Destination and self.VideoCue[key]['Index'] > Source and self.VideoCue[key]['Index'] > 0:
-                    self.VideoCue[key]['Index'] = self.VideoCue[key]['Index']-1
+                if self.Videodict[key]['Index'] <= Destination and self.Videodict[key]['Index'] > Source and self.Videodict[key]['Index'] > 0:
+                    self.Videodict[key]['Index'] = self.Videodict[key]['Index']-1
         if Source > Destination:
             for key in keys:
-                if self.VideoCue[key]['Index'] >= Destination and self.VideoCue[key]['Index'] < Source:
-                    self.VideoCue[key]['Index'] = self.VideoCue[key]['Index'] + 1
-        self.VideoCue[name]['Index'] = Destination
-        self.rebuildkeylist()
-    def GetVideoList(self):
-        return self.keylist
+                if self.Videodict[key]['Index'] >= Destination and self.Videodict[key]['Index'] < Source:
+                    self.Videodict[key]['Index'] = self.Videodict[key]['Index'] + 1
+        self.Videodict[name]['Index'] = Destination
+        self.rebuildVideokeylist()
+    def MoveCue(self, Source, Destination):
+        name = ""
+        keys = self.Cues. keys
+        for key in keys:
+            if Source == self.Cues[key]['Index']:
+                name = key
+        if Source < Destination:
+            for key in keys:
+                if self.CuesVideodict[key]['Index'] <= Destination and self.CuesVideodict[key]['Index'] > Source and self.CuesVideodict[key]['Index'] > 0:
+                    self.CuesVideodict[key]['Index'] = self.CuesVideodict[key]['Index']-1
+        if Source > Destination:
+            for key in keys:
+                if self.CuesVideodict[key]['Index'] >= Destination and self.CuesVideodict[key]['Index'] < Source:
+                    self.CuesVideodict[key]['Index'] = self.CuesVideodict[key]['Index'] + 1
+        self.CuesVideodict[name]['Index'] = Destination
+        self.rebuildCuekeylist()
+
     def GetVideoPlaylist(self, t):
-        for x in self.VideoCue.keys():
-            f = int((t - self.VideoCue[x]['starttime']) * self.VideoCue[x]['Video'].fps)
-            self.framedone.append(f)
-            if f >=0 and f <=  self.VideoCue[x]['Video'].frame_count:
-                frame =  self.VideoCue[x]['Video'].nextframe(f)
-                if frame is not None:
-                    h, w, channels = frame.shape
-                    im = bimpy.Image(frame)
-                    if im:
-                        ctx.init(h, w, "Image")
-                        bimpy.image(im) 
-                    else:
-                        return False
-                else:
-                    return False
-            bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(f, self.test,(f-self.test)))
-            bimpy.text('{0}'.format(self.framedone))
-            self.test = f
+        for x in self.Videodict.keys():
+            if self.Videodict[x]['State'] == 1:#1 = get next frame
+                f = int((t - self.Videodict[x]['StartTime']) * self.Videodict[x]['Video'].fps)
+                self.framedone.append(f)
+                if f >=0 and f <=  self.Videodict[x]['Video'].frame_count:
+                    frame =  self.Videodict[x]['Video'].nextframe(f)
+                    if frame is not None:
+                        h, w, channels = frame.shape
+                        #need to add OpenGL code
+                bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(f, self.test,(f-self.test)))
+                bimpy.text('{0}'.format(self.framedone))
+                self.test = f
+            elif self.Videodict[x]['State'] == 2:#2 == paused video
+                if self.Videodict[x]['Video'].lastframe is not None:
+                    h, w, channels = self.Videodict[x]['Video'].lastframe().shape
+                    #need to add OpenGL code
+
+                    bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(self.Videodict[x]['Video'].lastframe, self.test,(self.Videodict[x]['Video'].lastframe-self.test)))
+                    bimpy.text('{0}'.format(self.framedone))
+                    self.test = self.Videodict[x]['Video'].lastframe
+            #else 0 means off
+
         return True
     def removeVideo(self,viid):
         removekey = {}
         if viid is not None:
-            for key, value in self.VideoCue.items():
-                if viid == self.VideoCue[key]['Index']:
-                    self.VideoCue[key]['Video'].CloseVideo()
+            for key, value in self.Videodict.items():
+                if viid == self.Videodict[key]['Index']:
+                    self.Videodict[key]['Video'].CloseVideo()
                     if self.index > 0:
                         self.index = self.index - 1
                 else:
-                    removekey[key] = self.VideoCue[key]
-                    if self.VideoCue[key]['Index'] > viid and self.VideoCue[key]['Index'] > 0:
-                        removekey[key]['Index'] = self.VideoCue[key]['Index']-1
-            self.VideoCue = removekey
-            self.rebuildkeylist()
+                    removekey[key] = self.Videodict[key]
+                    if self.Videodict[key]['Index'] > viid and self.Videodict[key]['Index'] > 0:
+                        removekey[key]['Index'] = self.Videodict[key]['Index']-1
+            self.Videodict = removekey
+            self.rebuildVideokeylist()
+    def removeCue(self,cuid):
+        removekey = {}
+        if cuid is not None:
+            for key, value in self.Cues.items():
+                if cuid == self.Cues[key]['Index']:
+                    self.Cues[key]['Video'].CloseVideo()
+                    if self.Cueindex > 0:
+                        self.Cueindex = self.Cueindex - 1
+                else:
+                    removekey[key] = self.Cues[key]
+                    if self.Cues[key]['Index'] > cuid and self.Cues[key]['Index'] > 0:
+                        removekey[key]['Index'] = self.Cues[key]['Index']-1
+            self.Cues = removekey
+            self.rebuildVideokeylist()
     def active(self):
-        if len(self.VideoCue.keys()) > 0:
+        if len(self.Videodict.keys()) > 0:
             return True
         else:
             return False
-    def rebuildkeylist(self):
+    def rebuildVideokeylist(self):
         self.keylist = []
+        self.indexlist = []
         temdic = {}
-        for i in self.VideoCue.keys():
-            temdic[self.VideoCue['{0}'.format(i)]['Index']] = self.VideoCue[i]['Name']
+        temdicindex = {}
+        for i in self.Videodict.keys():
+            temdic[self.Videodict['{0}'.format(i)]['Index']] = self.Videodict[i]['Name']
+            temdicindex[self.Videodict['{0}'.format(i)]['Index']] = i
         for i in range(len(temdic.keys())):
             self.keylist.append(temdic[i])
+            self.indexlist.append(temdicindex[i])
+    def rebuildCuekeylist(self):
+        self.cuekeylist = []
+        self.Cueindexlist = []
+        temdic = {}
+        temdicindex = {}
+        for i in self.Cues.keys():
+            temdic[self.Cues['{0}'.format(i)]['Index']] = self.Cues[i]['Name']
+            temdicindex[self.Cues['{0}'.format(i)]['Index']] = i
+        for i in range(len(temdic.keys())):
+            self.cuekeylist.append(temdic[i])
+            self.Cueindexlist.append(temdicindex[i])
     def runtime(self):
         return self.FullRunTime
-    def SetStartTime(self,vid, vname, t):
-        self.VideoCue[vname][vid]['starttime']= t
-    def cuevplblock(self, videoid,type,starttime,**kwargs):
-        #Where kwargs holds the info needed for the type of VPLblock being made. 
-        #The result is returned as success or not. 
-        return True
+    def SetStartTime(self, cname, t):
+        self.Cues[cname]['starttime']= t
+    def SetStateVideo(self, vname, state):
+        if state == 1:
+            self.Videodict[vname]['State']= state
+            self.Videodict[vname]['StartTime'] = time.time()
+        else:
+            self.Videodict[vname]['State']= state
 
 
 #ImGUI Verables
@@ -197,6 +257,8 @@ window = bimpy.Vec2(20,20)
 windowsize = bimpy.Vec2(200, 200)
 searchwindow = bimpy.Vec2(20,20)
 searchwindowsize = bimpy.Vec2(200, 200)
+Inersize = bimpy.Vec2(0,150)
+Inercuesize = bimpy.Vec2(0,-45)
 
 #Screen
 # ##### More then one screen?
@@ -208,18 +270,31 @@ lastpath = [os.path.expanduser("~")]
 dirlist = []
 startvideo = False
 
+
 #Navication
 search = "*"
 rescan = False
 Error = False
 selectedindex = None
-editdict= dict(ViewPort=bimpy.Bool(False), Mask=bimpy.Bool(False), CodeBlocks=bimpy.Bool(False))
 
 TheSchedular = Schedular()
-
+playtime= 0
+runtime = bimpy.Float(0)
 starttime = time.time()
-def Seek(self, t):
-    starttime = time.time()
+curenttime=0
+accuracy =5
+
+def Load(file):
+    # write a file
+    f = open(file, "w")
+    dill.dump(TheSchedular, f)
+    dill.dump(playtime, f)
+    f.close()
+def Save(file):
+    f = open(file, "r")
+    TheSchedular = dill.load(f)
+    playtime = dill.load(f)
+    f.close()
 
 while(not ctx.should_close()):
     ctx.new_frame()
@@ -237,12 +312,14 @@ while(not ctx.should_close()):
     bimpy.text("Time:{0}".format(time.time()))
     if bimpy.button("Add Test Video"):
         videopath = "D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv"
-        TheSchedular.CueVideo(videopath)
+        TheSchedular.initVideo(videopath)
     bimpy.same_line()
     if bimpy.button("Add Test Videos"):
         videopath = ["D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-30-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-60-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird20.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird60.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird90.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\Family.3gp"]   
         for vidpath in videopath:
-            TheSchedular.CueVideo(vidpath)
+            TheSchedular.initVideo(vidpath)
+    if bimpy.button("Add Test Cue"):
+        TheSchedular.initCue("Click", "Click", None)
     if bimpy.button("Add Video"):
         rescan = True
         SearchFile.value = True   
@@ -251,21 +328,19 @@ while(not ctx.should_close()):
         if bimpy.button("Delete Video"):
             TheSchedular.removeVideo(selectedindex)
             selectedindex = None
-        bimpy.same_line(spacing_w=50)
-        if not PlayVideo.value:
-            if bimpy.button("play"):
-                PlayVideo.value = True
-                startvideo = True
-                Pause.value = False
-    bimpy.begin_child("Cue", border=True)
+        # bimpy.same_line(spacing_w=50)
+    
+    bimpy.begin_child("Videos", Inersize, border=True)
     if not TheSchedular.active():
-        bimpy.text("No Vieos in Cue")
+        bimpy.text("No Vieos")
     else:
-        bimpy.columns(2, "Cued Videos", True)
+        bimpy.columns(3, "Cued Videos", True)
         bimpy.separator()
         bimpy.text("ID")
         bimpy.next_column()
         bimpy.text("Videos")
+        bimpy.next_column()
+        bimpy.text("Filters")
         bimpy.next_column()
 
         bimpy.separator()
@@ -273,26 +348,13 @@ while(not ctx.should_close()):
         move_from = -1
         move_to = -1
         index = -1
-        for vid in TheSchedular.GetVideoList():
+        for vid in TheSchedular.keylist:
             bimpy.text("{0}. ".format(index+1))
             bimpy.next_column()
             index=index+1
-            if bimpy.button(vid):
+            if bimpy.button(TheSchedular.Videodict[TheSchedular.indexlist[index]]['Name']):
                 SelectedVideo.value = vid
                 selectedindex = index
-                bimpy.open_popup("Edit Video {0}".format(vid))
-            if bimpy.begin_popup("Edit Video {0}".format(vid)):
-                bimpy.same_line()
-                bimpy.text("Edit Video's")
-                bimpy.separator()
-                for edkey in editdict.keys():
-                    if bimpy.selectable(edkey):
-                        for edkey2 in editdict.keys():
-                            if edkey2 == edkey:
-                                editdict[edkey].value = True
-                            else:
-                                editdict[edkey].value = False
-                bimpy.end_popup()
             if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
                 if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
                     bimpy.text("Moving \"%s\"", vid)
@@ -311,9 +373,154 @@ while(not ctx.should_close()):
                 # #Reorder items
                 TheSchedular.MoveVideo(move_from,move_to)
                 move_from = -1
-                move_to = -1
-            bimpy.next_column()    
+                move_to = -1   
+            bimpy.next_column()
+            Filterkeys = []
+            if TheSchedular.Videodict[TheSchedular.indexlist[index]]['Filters']:
+                Filterkeys = TheSchedular.Videodict[TheSchedular.indexlist[index]]['Filters'].keys()
+            quemove_from = -1
+            quemove_to = -1
+            index = -1
+            if len(Filterkeys) == 0:
+                bimpy.selectable("Drop Ques Here")
+            else:
+                for que in Filterkeys:
+                    bimpy.same_line()
+                    index = quindex + 1
+                    bimpy.selectable(que)
+                    
+
+                    if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
+                        if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
+                            bimpy.text("Moving \"%s\"", vid)
+                        tempval ="{0}".format(queindex)
+                        bimpy.set_drag_drop_payload_string(tempval)
+                        payload.value = queindex
+                        bimpy.end_drag_drop_source()
+
+                    bimpy.DragDropFlags.AcceptBeforeDelivery
+                    bimpy.DragDropFlags.AcceptNoDrawDefaultRect
+                    if bimpy.begin_drag_drop_target():
+                        if ("{0}".format(payload.value) == tempval):
+                            quemove_from = payload.value
+                            quemove_to = queindex
+                    if (quemove_from != -1 and quemove_to != -1):
+                        # #Reorder items
+                        TheSchedular.MoveQue(TheSchedular.indexlist[index], quemove_from,quemove_to)
+                        quemove_from = -1
+                        quemove_to = -1
+            bimpy.next_column()
     bimpy.end_child()
+    bimpy.begin_child("Cues", Inercuesize, border=True)
+    if not len(TheSchedular.cuekeylist) > 0:
+        bimpy.text("No Cues")
+    else:
+        bimpy.columns(3, "Cued Videos", True)
+        bimpy.separator()
+        bimpy.text("ID")
+        bimpy.next_column()
+        bimpy.text("Cues")
+        bimpy.next_column()
+        bimpy.text("Blocks")
+        bimpy.next_column()
+
+        bimpy.separator()
+        bimpy.set_column_offset(1, 40)
+        move_from = -1
+        move_to = -1
+        index = -1
+        for vid in TheSchedular.cuekeylist:
+            bimpy.text("{0}. ".format(index+1))
+            bimpy.next_column()
+            index=index+1
+            if bimpy.button(TheSchedular.Cues[TheSchedular.Cueindexlist[index]]['Name']):
+                SelectedVideo.value = vid
+                selectedindex = index
+            if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
+                if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
+                    bimpy.text("Moving \"%s\"", vid)
+                tempval ="{0}".format(index)
+                bimpy.set_drag_drop_payload_string(tempval)
+                payload.value = index
+                bimpy.end_drag_drop_source()
+
+            bimpy.DragDropFlags.AcceptBeforeDelivery
+            bimpy.DragDropFlags.AcceptNoDrawDefaultRect
+            if bimpy.begin_drag_drop_target():
+                if ("{0}".format(payload.value) == tempval):
+                    move_from = payload.value
+                    move_to = index
+            if (move_from != -1 and move_to != -1):
+                # #Reorder items
+                TheSchedular.MoveCue(move_from,move_to)
+                move_from = -1
+                move_to = -1   
+            bimpy.next_column()
+            Quekeys = []
+            if TheSchedular.Cues[TheSchedular.Cueindexlist[index]].get('Blocks'):
+                Quekeys = TheSchedular.Cues[TheSchedular.Cueindexlist[index]]['Blocks'].keys()
+            quemove_from = -1
+            quemove_to = -1
+            queindex = -1
+            if len(Quekeys) == 0:
+                bimpy.selectable("Drop Ques Here")
+            else:
+                for que in Quekeys:
+                    bimpy.same_line()
+                    queindex = queindex + 1
+                    bimpy.selectable(que)
+                    
+
+                    if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
+                        if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
+                            bimpy.text("Moving \"%s\"", vid)
+                        tempval ="{0}".format(queindex)
+                        bimpy.set_drag_drop_payload_string(tempval)
+                        payload.value = queindex
+                        bimpy.end_drag_drop_source()
+
+                    bimpy.DragDropFlags.AcceptBeforeDelivery
+                    bimpy.DragDropFlags.AcceptNoDrawDefaultRect
+                    if bimpy.begin_drag_drop_target():
+                        if ("{0}".format(payload.value) == tempval):
+                            quemove_from = payload.value
+                            quemove_to = queindex
+                    if (quemove_from != -1 and quemove_to != -1):
+                        # #Reorder items
+                        TheSchedular.MoveQue(TheSchedular.indexlist[index], quemove_from,quemove_to)
+                        quemove_from = -1
+                        quemove_to = -1
+            bimpy.next_column()
+
+    bimpy.end_child()
+    if bimpy.button("Play"):
+        PlayVideo.value = True
+        startvideo = True
+        Pause.value = False
+    bimpy.same_line()
+    if bimpy.button("Restart"):
+            startvideo=True
+            Pause.value = False
+    bimpy.same_line()
+    if bimpy.button("Stop"):
+        startvideo=True
+        Pause.value = False
+        PlayVideo.value = False
+    bimpy.same_line()
+    if bimpy.button("Pause"):
+        if Pause.value:
+            PlayVideo.value = True
+            Pause.value = False
+            starttime = time.time()
+        else:
+            Pause.value = True
+            playtime = curenttime
+    # if bimpy.slider_float("Play Back", runtime, 0.0, TheSchedular.FullRunTime):
+    #     if not Pause.value:
+    #         starttime = time.time()
+    #     playtime = runtime.value
+
+
     bimpy.end()
     if PlayVideo.value:
         bimpy.set_next_window_pos(window, bimpy.Condition.Once)
@@ -322,30 +529,18 @@ while(not ctx.should_close()):
         if startvideo:
             startvideo = False
             starttime = time.time()
-        temptime = (time.time() - starttime)
+            playtime = 0
+        if not Pause.value:
+            curenttime = (time.time() - starttime)
+            runtime.value = curenttime + playtime
         if TheSchedular.active(): 
-            if TheSchedular.runtime() > temptime:
+            if TheSchedular.runtime() > runtime.value:
                 pl = 0
-                tmlist = TheSchedular.GetVideoPlaylist(temptime)
+                tmlist = TheSchedular.GetVideoPlaylist(runtime.value)
                 if not tmlist:
                     startvideo=True
                     Pause.value = False
                     PlayVideo.value = False      
-                if bimpy.button("Restart"):
-                    startvideo=True
-                    Pause.value = False
-                    bimpy.same_line()
-                if bimpy.button("Stop"):
-                    startvideo=True
-                    Pause.value = False
-                    PlayVideo.value = False
-                if bimpy.invisible_button("Pause/Play",windowsize):
-                    if Pause.value:
-                        PlayVideo.value = True
-                        Pause.value = False
-                        starttime = time.time()
-                    else:
-                        Pause.value = True
             else:
                 startvideo=True
                 PlayVideo.value = False
@@ -360,7 +555,7 @@ while(not ctx.should_close()):
         bimpy.end
 
     if SearchFile.value:
-        videopath = None
+        videopath1 = None
         ret = -1
         bimpy.set_next_window_pos(searchwindow, bimpy.Condition.Once)
         bimpy.set_next_window_size(searchwindowsize, bimpy.Condition.Once)
@@ -383,7 +578,7 @@ while(not ctx.should_close()):
         if ChangePath:
             try: 
                 if Path(text_val.val).is_file():
-                    videopath = text_val.value
+                    videopath1 = text_val.value
             except:
                 try:
                     if Path(text_val.value).is_dir():
@@ -407,18 +602,21 @@ while(not ctx.should_close()):
             bimpy.end_popup()
         bimpy.begin_child(path)
         bimpy.separator()
+        tempdirlist = []
         for fileordir in dirlist:
+            tempdirlist.append(fileordir)
             if fileordir.is_dir():
-                if bimpy.selectable("(Dir)" + fileordir.name):
+                if bimpy.selectable("(Dir)" + fileordir.name + "/"):
                     lastpath.append(path)
                     path = fileordir._str
                     rescan = True
             else:
                 if bimpy.selectable(fileordir.name):
-                    videopath = fileordir._str
+                    videopath1 = fileordir._str
+        dirlist = tempdirlist
         bimpy.end_child()
-        if videopath:
-            cued = Schedular.CueVideo(videopath)
+        if videopath1:
+            cued = Schedular.initVideo(videopath1)
             if cued:
                 Error = True       
             else:
