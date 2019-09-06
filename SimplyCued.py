@@ -101,16 +101,22 @@ class Schedular():
     Cueindex = 0
     ##Test
     test = 0
-    def initCue(self, startcon, name, data):
-        self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":name, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Data":data}
+    def initCue(self, startcon, name):
+        self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":name, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Filters":{}, "Filterindex":0, "FiltersMenu": bimpy.Bool(False)}
         self.Cueindex = self.Cueindex+1
         self.rebuildCuekeylist()
+    
+    def AddVPLBlock(self, block, cuid, Data):
+        for n in self.Cues.keys():
+            if self.Cues[n]["Index"] == cuid:
+                self.Cues[n]["Filters"]["{0}{1}".format(filter, self.Cues[n]["Filterindex"])] = Data
+                self.Cues[n]["Filterindex"] = self.Cues[n]["Filterindex"] + 1
 
     def initVideo(self, videopath):
         cuedvideo = CuedVideo()
         ret = cuedvideo.LoadVideo(videopath)
         if not (ret == -1):
-            self.Videodict["{0}{1}".format(cuedvideo.name, self.index)] = {'Index':self.index, 'Name':cuedvideo.name, 'Filters':None, 'State':0, 'StartTime':None, 'filters':None, 'Video': cuedvideo}
+            self.Videodict["{0}{1}".format(cuedvideo.name, self.index)] = {'Index':self.index, 'Name':cuedvideo.name, 'Filters':None, 'State':0, 'StartTime':None, 'Video': cuedvideo}
             self.index = self.index+1
             self.FullRunTime = self.FullRunTime + cuedvideo.duration
             self.rebuildVideokeylist()
@@ -136,19 +142,19 @@ class Schedular():
         self.rebuildVideokeylist()
     def MoveCue(self, Source, Destination):
         name = ""
-        keys = self.Cues. keys
+        keys = self.Cues.keys()
         for key in keys:
             if Source == self.Cues[key]['Index']:
                 name = key
         if Source < Destination:
             for key in keys:
-                if self.CuesVideodict[key]['Index'] <= Destination and self.CuesVideodict[key]['Index'] > Source and self.CuesVideodict[key]['Index'] > 0:
-                    self.CuesVideodict[key]['Index'] = self.CuesVideodict[key]['Index']-1
+                if self.Cues[key]['Index'] <= Destination and self.Cues[key]['Index'] > Source and self.Cues[key]['Index'] > 0:
+                    self.Cues[key]['Index'] = self.Cues[key]['Index']-1
         if Source > Destination:
             for key in keys:
-                if self.CuesVideodict[key]['Index'] >= Destination and self.CuesVideodict[key]['Index'] < Source:
-                    self.CuesVideodict[key]['Index'] = self.CuesVideodict[key]['Index'] + 1
-        self.CuesVideodict[name]['Index'] = Destination
+                if self.Cues[key]['Index'] >= Destination and self.Cues[key]['Index'] < Source:
+                    self.Cues[key]['Index'] = self.Cues[key]['Index'] + 1
+        self.Cues[name]['Index'] = Destination
         self.rebuildCuekeylist()
 
     def GetVideoPlaylist(self, t):
@@ -161,6 +167,7 @@ class Schedular():
                     if frame is not None:
                         h, w, channels = frame.shape
                         #need to add OpenGL code
+                        bimpy.image(frame)
                 bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(f, self.test,(f-self.test)))
                 bimpy.text('{0}'.format(self.framedone))
                 self.test = f
@@ -175,6 +182,7 @@ class Schedular():
             #else 0 means off
 
         return True
+
     def removeVideo(self,viid):
         removekey = {}
         if viid is not None:
@@ -257,8 +265,9 @@ window = bimpy.Vec2(20,20)
 windowsize = bimpy.Vec2(200, 200)
 searchwindow = bimpy.Vec2(20,20)
 searchwindowsize = bimpy.Vec2(200, 200)
-Inersize = bimpy.Vec2(0,150)
-Inercuesize = bimpy.Vec2(0,-45)
+Inersize = bimpy.Vec2(0,-45)
+Inercuesize = bimpy.Vec2(0,150)
+Incuesize = bimpy.Vec2(0,35)
 
 #Screen
 # ##### More then one screen?
@@ -269,7 +278,9 @@ path = os.path.expanduser("~")
 lastpath = [os.path.expanduser("~")]
 dirlist = []
 startvideo = False
-
+Cues = ["Click", "Key", "Repeat", "Time", "Transition"] 
+Filter = ["Filter","Mask","View Port"]
+ActiveCue = 0
 
 #Navication
 search = "*"
@@ -319,7 +330,68 @@ while(not ctx.should_close()):
         for vidpath in videopath:
             TheSchedular.initVideo(vidpath)
     if bimpy.button("Add Test Cue"):
-        TheSchedular.initCue("Click", "Click", None)
+        TheSchedular.initCue("Click", "Click")
+    
+    
+
+    # ####################################################
+    # ####################################################
+    # ####################################################
+    bimpy.begin_child("Cues", Incuesize, border=True)
+    bimpy.text("Add New Cue")
+    for n in Cues:
+        bimpy.same_line()
+        if bimpy.button(n):
+            TheSchedular.initCue(n, "New{0}".format(n))
+    bimpy.end_child()
+    bimpy.begin_child("Cued", Inercuesize, border=True)
+    if not len(TheSchedular.cuekeylist) > 0:
+        bimpy.text("No Cues")
+    else:
+        bimpy.columns(2, "Cued Videos", True)
+        bimpy.separator()
+        bimpy.text("ID")
+        bimpy.next_column()
+        bimpy.text("Cues")
+        bimpy.next_column()
+
+        bimpy.separator()
+        bimpy.set_column_offset(1, 40)
+        quemove_from = -1
+        quemove_to = -1
+        queindex = -1
+        for cu in TheSchedular.cuekeylist:
+            bimpy.text("{0}. ".format(queindex+1))
+            bimpy.next_column()
+            queindex=queindex+1
+            if bimpy.button(TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name']):
+                ActiveCue = queindex
+            if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
+                if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
+                    bimpy.text("Moving \"%s\"", cu)
+                tempval ="{0}".format(queindex)
+                bimpy.set_drag_drop_payload_string(tempval)
+                payload.value = queindex
+                bimpy.end_drag_drop_source()
+
+            bimpy.DragDropFlags.AcceptBeforeDelivery
+            bimpy.DragDropFlags.AcceptNoDrawDefaultRect
+            if bimpy.begin_drag_drop_target():
+                if ("{0}".format(payload.value) == tempval):
+                    quemove_from = payload.value
+                    quemove_to = queindex
+            if (quemove_from != -1 and quemove_to != -1):
+                # #Reorder items
+                TheSchedular.MoveCue(quemove_from,quemove_to)
+                quemove_from = -1
+                quemove_to = -1   
+            bimpy.next_column()
+
+    bimpy.end_child()
+
+    # ####################################################
+    # ####################################################
+    # ####################################################
     if bimpy.button("Add Video"):
         rescan = True
         SearchFile.value = True   
@@ -329,16 +401,17 @@ while(not ctx.should_close()):
             TheSchedular.removeVideo(selectedindex)
             selectedindex = None
         # bimpy.same_line(spacing_w=50)
-    
     bimpy.begin_child("Videos", Inersize, border=True)
     if not TheSchedular.active():
         bimpy.text("No Vieos")
     else:
-        bimpy.columns(3, "Cued Videos", True)
+        bimpy.columns(4, "Cued Videos", True)
         bimpy.separator()
         bimpy.text("ID")
         bimpy.next_column()
         bimpy.text("Videos")
+        bimpy.next_column()
+        bimpy.text("State")
         bimpy.next_column()
         bimpy.text("Filters")
         bimpy.next_column()
@@ -375,124 +448,65 @@ while(not ctx.should_close()):
                 move_from = -1
                 move_to = -1   
             bimpy.next_column()
+            if len(TheSchedular.Cueindexlist) > 0:
+                if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"].keys():
+                    bimpy.text(TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['State'])
+                else:
+                    bimpy.text("Unchanged")
+            else:
+                    bimpy.text("Unchanged")
+            bimpy.next_column()
             Filterkeys = []
-            if TheSchedular.Videodict[TheSchedular.indexlist[index]]['Filters']:
-                Filterkeys = TheSchedular.Videodict[TheSchedular.indexlist[index]]['Filters'].keys()
-            quemove_from = -1
-            quemove_to = -1
-            index = -1
-            if len(Filterkeys) == 0:
-                bimpy.selectable("Drop Ques Here")
+            if len(TheSchedular.Cueindexlist) > 0:
+                if TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"]:
+                    Filterkeys = TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"].keys()
+                quemove_from = -1
+                quemove_to = -1
+                index = -1
+                if len(Filterkeys) == 0:
+                    bimpy.selectable("Add a Filter")
+                    if bimpy.begin_menu('Add A Filter', True):
+                        for fil in Filter:
+                            if bimpy.menu_item(fil):
+                                TheSchedular.AddVPLBlock(fil, ActiveCue, index, None)
+                            bimpy.end_menu()
+                else:
+                    for que in Filterkeys:
+                        bimpy.same_line()
+                        index = index + 1
+                        if bimpy.begin_menu(que):
+                            for n in caricteristics[que]:
+                                bimpy.menu_item('doc.txt', None, False, True)
+                            bimpy.end_menu()
+                        
+                        if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
+                            if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
+                                bimpy.text("Moving \"%s\"", vid)
+                            tempval ="{0}".format(index)
+                            bimpy.set_drag_drop_payload_string(tempval)
+                            payload.value = index
+                            bimpy.end_drag_drop_source()
+
+                        bimpy.DragDropFlags.AcceptBeforeDelivery
+                        bimpy.DragDropFlags.AcceptNoDrawDefaultRect
+                        if bimpy.begin_drag_drop_target():
+                            if ("{0}".format(payload.value) == tempval):
+                                quemove_from = payload.value
+                                quemove_to = index
+                        if (quemove_from != -1 and quemove_to != -1):
+                            # #Reorder items
+                            TheSchedular.MoveQue(TheSchedular.indexlist[index], quemove_from,quemove_to)
+                            quemove_from = -1
+                            quemove_to = -1
             else:
-                for que in Filterkeys:
-                    bimpy.same_line()
-                    index = quindex + 1
-                    bimpy.selectable(que)
-                    
-
-                    if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
-                        if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
-                            bimpy.text("Moving \"%s\"", vid)
-                        tempval ="{0}".format(queindex)
-                        bimpy.set_drag_drop_payload_string(tempval)
-                        payload.value = queindex
-                        bimpy.end_drag_drop_source()
-
-                    bimpy.DragDropFlags.AcceptBeforeDelivery
-                    bimpy.DragDropFlags.AcceptNoDrawDefaultRect
-                    if bimpy.begin_drag_drop_target():
-                        if ("{0}".format(payload.value) == tempval):
-                            quemove_from = payload.value
-                            quemove_to = queindex
-                    if (quemove_from != -1 and quemove_to != -1):
-                        # #Reorder items
-                        TheSchedular.MoveQue(TheSchedular.indexlist[index], quemove_from,quemove_to)
-                        quemove_from = -1
-                        quemove_to = -1
+                if bimpy.begin_menu('Add A Filter', True):
+                    for fil in Filter:
+                        if bimpy.menu_item(fil):
+                            TheSchedular.AddVPLBlock(fil, ActiveCue, index, None)
+                    bimpy.end_menu()
             bimpy.next_column()
     bimpy.end_child()
-    bimpy.begin_child("Cues", Inercuesize, border=True)
-    if not len(TheSchedular.cuekeylist) > 0:
-        bimpy.text("No Cues")
-    else:
-        bimpy.columns(3, "Cued Videos", True)
-        bimpy.separator()
-        bimpy.text("ID")
-        bimpy.next_column()
-        bimpy.text("Cues")
-        bimpy.next_column()
-        bimpy.text("Blocks")
-        bimpy.next_column()
-
-        bimpy.separator()
-        bimpy.set_column_offset(1, 40)
-        move_from = -1
-        move_to = -1
-        index = -1
-        for vid in TheSchedular.cuekeylist:
-            bimpy.text("{0}. ".format(index+1))
-            bimpy.next_column()
-            index=index+1
-            if bimpy.button(TheSchedular.Cues[TheSchedular.Cueindexlist[index]]['Name']):
-                SelectedVideo.value = vid
-                selectedindex = index
-            if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
-                if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
-                    bimpy.text("Moving \"%s\"", vid)
-                tempval ="{0}".format(index)
-                bimpy.set_drag_drop_payload_string(tempval)
-                payload.value = index
-                bimpy.end_drag_drop_source()
-
-            bimpy.DragDropFlags.AcceptBeforeDelivery
-            bimpy.DragDropFlags.AcceptNoDrawDefaultRect
-            if bimpy.begin_drag_drop_target():
-                if ("{0}".format(payload.value) == tempval):
-                    move_from = payload.value
-                    move_to = index
-            if (move_from != -1 and move_to != -1):
-                # #Reorder items
-                TheSchedular.MoveCue(move_from,move_to)
-                move_from = -1
-                move_to = -1   
-            bimpy.next_column()
-            Quekeys = []
-            if TheSchedular.Cues[TheSchedular.Cueindexlist[index]].get('Blocks'):
-                Quekeys = TheSchedular.Cues[TheSchedular.Cueindexlist[index]]['Blocks'].keys()
-            quemove_from = -1
-            quemove_to = -1
-            queindex = -1
-            if len(Quekeys) == 0:
-                bimpy.selectable("Drop Ques Here")
-            else:
-                for que in Quekeys:
-                    bimpy.same_line()
-                    queindex = queindex + 1
-                    bimpy.selectable(que)
-                    
-
-                    if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
-                        if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
-                            bimpy.text("Moving \"%s\"", vid)
-                        tempval ="{0}".format(queindex)
-                        bimpy.set_drag_drop_payload_string(tempval)
-                        payload.value = queindex
-                        bimpy.end_drag_drop_source()
-
-                    bimpy.DragDropFlags.AcceptBeforeDelivery
-                    bimpy.DragDropFlags.AcceptNoDrawDefaultRect
-                    if bimpy.begin_drag_drop_target():
-                        if ("{0}".format(payload.value) == tempval):
-                            quemove_from = payload.value
-                            quemove_to = queindex
-                    if (quemove_from != -1 and quemove_to != -1):
-                        # #Reorder items
-                        TheSchedular.MoveQue(TheSchedular.indexlist[index], quemove_from,quemove_to)
-                        quemove_from = -1
-                        quemove_to = -1
-            bimpy.next_column()
-
-    bimpy.end_child()
+    
     if bimpy.button("Play"):
         PlayVideo.value = True
         startvideo = True
