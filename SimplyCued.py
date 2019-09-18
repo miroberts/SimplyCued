@@ -104,16 +104,16 @@ class Schedular():
     ##Test
     test = 0
     def initCue(self, startcon, name):
-        self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":None, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Filters":dict(), "Filterindex":0, "FiltersMenu": bimpy.Bool(False)}
+        self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":name, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Filters":dict(), "Filterindex":0}
         self.Cueindex = self.Cueindex+1
         self.rebuildCuekeylist()
     
-    def AddVPLBlock(self, block, cuid, blid, Data):
+    def AddVPLBlock(self, vid, block, cuid, blid, Data):
         for n in self.Cues.keys():
             if self.Cues[n]["Index"] == cuid:
-                self.Cues[n]["Filters"]["{0}{1}".format(block, self.Cues[n]["Filterindex"])] = {"Name":None, "Index":self.Cues[n]["Filterindex"], "Data": Data}
+                self.Cues[n]["Filters"]["{0}{1}".format(block, self.Cues[n]["Filterindex"])] = {"Name":block, "Index":self.Cues[n]["Filterindex"], "Data": Data, 'videoindex':vid, "Menu": bimpy.Bool(False)}
                 self.Cues[n]["Filterindex"] = self.Cues[n]["Filterindex"] + 1
-
+        #TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['Menu']
     def initVideo(self, videopath):
         cuedvideo = CuedVideo()
         ret = cuedvideo.LoadVideo(videopath)
@@ -175,31 +175,39 @@ class Schedular():
                     self.Cues[cue]['Filters'][key]['Index'] = self.Cues[cue]['Filters'][key]['Index'] + 1
         self.Cues[cue]['Filters'][name]['Index'] = Destination
 
-    def VideoPlaylist(self, t):
+    def VideoPlaylist(self):
+        #Temp remove with OpenGL added
+        Tempreturn = []
+        frame = None
+        #
         for x in self.Videodict.keys():
-            if self.Videodict[x]['State'] == 1:#1 = get next frame
-                f = int((t - self.Videodict[x]['StartTime'] + self.Videodict[x]['PlayOffset']) * self.Videodict[x]['Video'].fps)
+            if self.Videodict[x]["Filters"]['State'] == 1:#1 = get next frame
+                f = int((time.time() - self.Videodict[x]['StartTime'] + self.Videodict[x]['PlayOffset']) * self.Videodict[x]['Video'].fps)
                 self.framedone.append(f)
                 if f >=0 and f <=  self.Videodict[x]['Video'].frame_count:
                     frame =  self.Videodict[x]['Video'].nextframe(f)
                     if frame is not None:
                         h, w, channels = frame.shape
                         #need to add OpenGL code
-                        bimpy.image(frame)
                 bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(f, self.test,(f-self.test)))
                 bimpy.text('{0}'.format(self.framedone))
                 self.test = f
-            elif self.Videodict[x]['State'] == 2:#2 == paused video
+            elif self.Videodict[x]["Filters"]['State'] == 2:#2 == paused video
                 if self.Videodict[x]['Video'].lastframe is not None:
-                    h, w, channels = self.Videodict[x]['Video'].lastframe().shape
+                    #h, w, channels = self.Videodict[x]['Video'].lastframe().shape
                     #need to add OpenGL code
-
-                    bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(self.Videodict[x]['Video'].lastframe, self.test,(self.Videodict[x]['Video'].lastframe-self.test)))
-                    bimpy.text('{0}'.format(self.framedone))
-                    self.test = self.Videodict[x]['Video'].lastframe
+                    frame = self.Videodict[x]['Video'].lastframe
+                bimpy.text("Frame:{0}\nLastFrame:{1} Diff{2}".format(self.Videodict[x]['Video'].lastframe, self.test,(self.Videodict[x]['Video'].lastframe-self.test)))
+                bimpy.text('{0}'.format(self.framedone))
+                self.test = self.Videodict[x]['Video'].lastframe
             #else 0 means off
-
-        return True
+            
+            #Temp remove with OpenGL added
+            if frame is not None:
+                Tempreturn.append(frame)
+        return Tempreturn
+        #
+        #return True
 
     def removeVideo(self,viid):
         removekey = {}
@@ -260,12 +268,18 @@ class Schedular():
         return self.FullRunTime
     def SetStartTime(self, cname, t):
         self.Cues[cname]['starttime']= t
-    def SetStateVideo(self, vname, state):
-        if state == 1:
-            self.Videodict[vname]['State']= state
-            self.Videodict[vname]['StartTime'] = time.time()
-        else:
-            self.Videodict[vname]['State']= state
+    def SetVideos(self, cue):
+        cuename = None
+        for c in self.Cues.keys():
+            if self.Cues[c]['Index'] == cue:
+                cuename = c
+        for vname in  self.Videodict.keys():
+            if self.Videodict[vname]["Filters"]:
+                self.Videodict[vname]["Filters"].update(self.Cues[cuename]["Filters"])
+            else:
+                self.Videodict[vname]["Filters"] = self.Cues[cuename]["Filters"][vname]
+            if self.Cues[cuename]["Filters"][vname]['State'] == 1:
+                self.Videodict[vname]['StartTime'] = time.time()
 
 
 #ImGUI Verables
@@ -300,6 +314,7 @@ Cues = ["Click", "Key", "Repeat", "Time", "Transition"]
 Filter = ["Filter","Mask","View Port"]
 State= ["Unchanged", "On", "Off", "Paused"]
 ActiveCue = 0
+StagedCue = 0
 
 #Navication
 search = "*"
@@ -423,19 +438,20 @@ while(not ctx.should_close()):
 
     bimpy.end_child()
 
-    # ####################################################
-    # ####################################################
-    # ####################################################
-    if bimpy.button("Add Video"):
-        rescan = True
-        SearchFile.value = True   
-    if TheSchedular.active():
-        bimpy.same_line()
-        if bimpy.button("Delete Video"):
-            TheSchedular.removeVideo(selectedindex)
-            selectedindex = None
+    
         # bimpy.same_line(spacing_w=50)
     if len(TheSchedular.Cueindexlist) > 0:
+        # ####################################################
+    # ####################################################
+    # ####################################################
+        if bimpy.button("Add Video"):
+            rescan = True
+            SearchFile.value = True   
+        if TheSchedular.active():
+            bimpy.same_line()
+            if bimpy.button("Delete Video"):
+                TheSchedular.removeVideo(selectedindex)
+                selectedindex = None
         bimpy.begin_child("Videos", Inersize, border=True)
         if not TheSchedular.active():
             bimpy.text("No Vieos")
@@ -460,7 +476,7 @@ while(not ctx.should_close()):
                 bimpy.text("{0}. ".format(index+1))
                 bimpy.next_column()
                 index=index+1
-                if bimpy.button(TheSchedular.Videodict[TheSchedular.indexlist[index]]['Name']):
+                if bimpy.button('{0}{1}'.format(index,TheSchedular.Videodict[TheSchedular.indexlist[index]]['Name'])):
                     SelectedVideo.value = vid
                     selectedindex = index
                 if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
@@ -484,15 +500,15 @@ while(not ctx.should_close()):
                     move_to = -1   
                 bimpy.next_column()
                 if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"]:
-                    if bimpy.begin_menu(State[TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['State']]):
+                    if bimpy.begin_menu("{0} {1}".format(index,State[TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['State']])):
                         for st in State:
-                            if bimpy.menu_item(st, 'set', bimpy.Bool(False), True):
+                            if bimpy.selectable(st):
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['State'] = State.index(st)
                         bimpy.end_menu()
                 else:
-                    if bimpy.begin_menu('Unchanged'):
+                    if bimpy.begin_menu("{0} Unchanged".format(index), bimpy.Bool(True)):
                         for st in State:
-                            if bimpy.menu_item(st, 'set', bimpy.Bool(False), True):
+                            if bimpy.selectable(st):
                                 if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"]:
                                     TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['State'] = State.index(st)
                                 else:
@@ -500,26 +516,23 @@ while(not ctx.should_close()):
                         bimpy.end_menu()
                 bimpy.next_column()
                 Filterkeys = []
-                if len(TheSchedular.Cueindexlist) > 0:
+                if len(TheSchedular.Cueindexlist) > 0 and ActiveCue == index:
                     if TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"]:
                         Filterkeys = TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"].keys()
                     blockmove_from = -1
                     blockmove_to = -1
                     blockindex = -1
-                    if bimpy.begin_menu('Add A Block'):
+                    if bimpy.begin_menu('{0} Add A Block'.format(index)):
                         for fil in Filter:
-                            if bimpy.menu_item(fil, 'Add', bimpy.Bool(False), True):
-                                TheSchedular.AddVPLBlock(fil, ActiveCue, blockindex, None)
+                            if bimpy.selectable('Add {0}'.format(fil)):
+                                TheSchedular.AddVPLBlock(index, fil, ActiveCue, blockindex, None)
                         bimpy.end_menu()
                     if len(Filterkeys) > 0:
                         for que in Filterkeys:
-                            bimpy.same_line()
                             blockindex = blockindex + 1
-                            if bimpy.begin_menu(que):
-                                for n in TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][que].keys():
-                                    bimpy.menu_item(n, 'Add', bimpy.Bool(False), True)
-                                bimpy.end_menu()
-                            
+                            if bimpy.selectable(que):
+                                TheSchedular.EditFilter(que, ActiveCue)
+                                
                             if bimpy.begin_drag_drop_source(bimpy.DragDropFlags.__flags__):
                                 if (not(bimpy.DragDropFlags.SourceNoDisableHover and bimpy.DragDropFlags.SourceNoHoldToOpenOthers)):# and bimpy.DragDropFlags.SourceNoPreviewTooltip)):
                                     bimpy.text("Moving \"%s\"", vid)
@@ -536,31 +549,48 @@ while(not ctx.should_close()):
                                     blockmove_to = blockindex
                             if (blockmove_from != -1 and blockmove_to != -1):
                                 # #Reorder items
-                                TheSchedular.MoveBlock(ActiveCue, vid, blockmove_from,blockmove_to)
+                                TheSchedular.MoveVPLBlock(TheSchedular.Cueindexlist[ActiveCue], vid, blockmove_from,blockmove_to)
                                 blockmove_from = -1
                                 blockmove_to = -1
                 else:
-                    if bimpy.begin_menu('Add A Block'):
+                    if bimpy.begin_menu('{0} Add A Block'.format(index)):
                         for fil in Filter:
-                            if bimpy.menu_item(fil, 'Add', bimpy.Bool(False), True):
-                                TheSchedular.AddVPLBlock(fil, ActiveCue, blockindex, None)
+                            if bimpy.selectable('Add {0}'.format(fil)):
+                                TheSchedular.AddVPLBlock(index, fil, ActiveCue, blockindex, None)
                         bimpy.end_menu()
                 bimpy.next_column()
         bimpy.end_child()
         
-        if bimpy.button("Play"):
+        if bimpy.button("Go", bimpy.Vec2(50,50)):
             PlayVideo.value = True
             startvideo = True
             Pause.value = False
+            tmp = StagedCue + 1
+            ActiveCue = StagedCue
+            StagedCue = tmp
+            TheSchedular.SetVideos(ActiveCue)
+
+        bimpy.same_line()
+        if bimpy.button("Reset", bimpy.Vec2(50,50)):
+            PlayVideo.value = False
+            startvideo = False
+            Pause.value = False
+            ActiveCue = 0
+            StagedCue = 0
+
+        # if bimpy.button("Play"):
+        #     PlayVideo.value = True
+        #     startvideo = True
+        #     Pause.value = False
         # bimpy.same_line()
         # if bimpy.button("Restart"):
         #         startvideo=True
         #         Pause.value = False
-        bimpy.same_line()
-        if bimpy.button("Stop"):
-            startvideo=True
-            Pause.value = False
-            PlayVideo.value = False
+        # bimpy.same_line()
+        # if bimpy.button("Stop"):
+        #     startvideo=True
+        #     Pause.value = False
+        #     PlayVideo.value = False
         # bimpy.same_line()
         # if bimpy.button("Pause"):
         #     if Pause.value:
@@ -585,17 +615,22 @@ while(not ctx.should_close()):
             startvideo = False
             starttime = time.time()
             playtime = 0
-        if not Pause.value:
-            curenttime = (time.time() - starttime)
-            runtime.value = curenttime + playtime
+        # if not Pause.value:
+        #     curenttime = (time.time() - starttime)
+        #     runtime.value = curenttime + playtime
         if TheSchedular.active(): 
             if TheSchedular.runtime() > runtime.value:
                 pl = 0
-                tmlist = TheSchedular.VideoPlaylist(runtime.value)
+                tmlist = TheSchedular.VideoPlaylist()
                 if not tmlist:
                     startvideo=True
                     Pause.value = False
-                    PlayVideo.value = False      
+                    PlayVideo.value = False    
+                else:
+                    for frame in tmlist:
+                        h, w, channels = frame.shape
+                        im = bimpy.Image(frame)  
+                        bimpy.image(im)
             else:
                 startvideo=True
                 PlayVideo.value = False
