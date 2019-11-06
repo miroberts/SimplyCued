@@ -753,7 +753,7 @@ while(not glfw.window_should_close(window)):
             imgui.set_next_window_size(500, 300, imgui.ONCE)
             imgui.begin("User Guide", TheSchedular.ShowGuide)
             imgui.show_user_guide()
-            imgui.end
+            # imgui.end
 
         if TheSchedular.SearchFile:
             videopath1 = None
@@ -799,6 +799,7 @@ while(not glfw.window_should_close(window)):
                 for x in types:
                     if imgui.selectable(x)[0]:
                         TheSchedular.search = x
+                        TheSchedular.rescan = True
                 imgui.end_popup()
             imgui.begin_child(TheSchedular.path)
             imgui.separator()
@@ -860,7 +861,7 @@ while(not glfw.window_should_close(window)):
                 if imgui.is_key_pressed(0,False): # is_key_down(,):
                     AdvanceCue()
             elif NextCue['StartCondition'] == 'Repeat':
-                if Repeated >= NextCue['Repeat']:
+                if Repeated <= NextCue['Repeat']:
                     AdvanceCue()
             elif NextCue['StartCondition'] == 'Time':
                 if playtime >= NextCue['starttime'] - NextCue['RunTime']:
