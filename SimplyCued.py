@@ -88,9 +88,9 @@ class Renderer():
         
         self.buff = gl.glGenBuffers(1)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.buff)
-        square = np.array([0.0, 1.0,0.0,0.0,0.0,0.0,1.0,1.0,0.0,1.0,0.0,0.0])
+        square = [0.0, 1.0,0.0,0.0,0.0,0.0,1.0,1.0,0.0,1.0,0.0,0.0]
         data = np.array(square, np.float32)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, 4* len(data), data, gl.GL_STATIC_DRAW)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, data.nbytes, data, gl.GL_STATIC_DRAW)
         
         self.vPos = gl.glGetAttribLocation(self.program, 'vPos')
         self.vTex = gl.glGetAttribLocation(self.program, "vTex")
@@ -109,6 +109,7 @@ class Renderer():
 
     def rend(self, frame, filters):
         gl.glUseProgram(self.program)
+        gl.glBindVertexArray(self.vao)
         mvMatrix = np.array([
         100.0, 0.0,  0.0, 0.0,
         0.0, 100.0,  0.0, 0.0,
@@ -117,7 +118,7 @@ class Renderer():
         mvMatrix = np.matrix([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]])
         gl.glUniformMatrix4fv(self.modelViewMatrix, 1, gl.GL_FALSE, mvMatrix)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.buff)
-        gl.glVertexAttribPointer(self.vPos, 3, gl.GL_FLOAT, False, 0, 0)
+        gl.glVertexAttribPointer(self.vPos, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, 0)
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)
 
 
@@ -316,8 +317,6 @@ class Schedular():
         self.Cues[cue]['Filters'][name]['Index'] = Destination
 
     def VideoPlaylist(self):
-        retn = []
-
         for x in self.Videodict.keys():
             frame = None
             if self.Videodict[x].get("Filters"):
@@ -327,14 +326,13 @@ class Schedular():
                     if f >=0 and f <=  self.Videodict[x]['Video'].frame_count:
                         frame =  self.Videodict[x]['Video'].nextframe(f)
                         if frame is not None:
-                            retn.append(self.renderer.rend(frame,self.Videodict[x]["Filters"]))
+                            self.renderer.rend(frame,self.Videodict[x]["Filters"])
                             
                 elif self.Videodict[x]["Filters"]['State'] == 2:#2 == paused video
                     if self.Videodict[x]['Video'].lastframe is not None:
-                        retn.append(self.renderer.rend(frame,self.Videodict[x]["Filters"]))
+                        self.renderer.rend(frame,self.Videodict[x]["Filters"])
                         
                 #else 0 means off
-        return retn
 
     # def applyfilters(self, viid, frame, ):
     #     return frame
@@ -504,7 +502,8 @@ impl = GlfwRenderer(window)
 
 TheSchedular = Schedular()
 
-
+Debug = None
+Debug = True
 
 #Screen
 # ##### More then one screen?
@@ -530,6 +529,8 @@ def Load(self, file):
 
 
 while(not glfw.window_should_close(window)):
+    gl.glClearColor(0., 0., 0., 1)
+    gl.glClear(gl.GL_COLOR_BUFFER_BIT)
     glfw.poll_events()
     impl.process_inputs()
 
@@ -545,16 +546,17 @@ while(not glfw.window_should_close(window)):
                 TheSchedular.ShowGuide = True
             imgui.end_menu()
         imgui.end_menu_bar()
-    imgui.text("Time:{0}".format(time.time()))
-    imgui.same_line()
-    if imgui.button("Add Test Videos"):
-        videopath = ["D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-30-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-60-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird20.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird60.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird90.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\Family.3gp"]   
-        for vidpath in videopath:
-            TheSchedular.initVideo(vidpath)
-    if imgui.button("Add Test Cue"):
-        TheSchedular.initCue("Click", "Click")
-        TheSchedular.initVideo("D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv")
-        TheSchedular.Cues["Click0"]["Filters"]['jellyfish-100-mbps-hd-h264.mkv0']= {'State': 1}
+    # imgui.text("Time:{0}".format(time.time()))
+    # imgui.same_line()
+    if Debug is not None:
+        if imgui.button("Add Test Videos"):
+            videopath = ["D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-30-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-60-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird20.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird60.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\bird90.mkv","D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\Family.3gp"]   
+            for vidpath in videopath:
+                TheSchedular.initVideo(vidpath)
+        if imgui.button("Add Test Cue"):
+            TheSchedular.initCue("Click", "Click")
+            TheSchedular.initVideo("D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv")
+            TheSchedular.Cues["Click0"]["Filters"]['jellyfish-100-mbps-hd-h264.mkv0']= {'State': 1}
     
     
 
@@ -564,7 +566,7 @@ while(not glfw.window_should_close(window)):
     if not TheSchedular.PlayVideo:
         imgui.begin_child("Cues", TheSchedular.Incuesize.x, TheSchedular.Incuesize.y, border=True)
         imgui.text("Add New Cue")
-        for n in TheSchedular.Cues:
+        for n in TheSchedular.CuesList:
             imgui.same_line()
             if imgui.button(n):
                 TheSchedular.initCue(n, "New{0}".format(n))
@@ -745,6 +747,88 @@ while(not glfw.window_should_close(window)):
                             imgui.end_menu()
                     imgui.next_column()
             imgui.end_child()
+            
+        if TheSchedular.ShowGuide:
+            imgui.set_next_window_position(20, 20, imgui.ONCE)
+            imgui.set_next_window_size(500, 300, imgui.ONCE)
+            imgui.begin("User Guide", TheSchedular.ShowGuide)
+            imgui.show_user_guide()
+            imgui.end
+
+        if TheSchedular.SearchFile:
+            videopath1 = None
+            ret = -1
+            imgui.set_next_window_position(TheSchedular.searchwindow.x,TheSchedular.searchwindow.y , imgui.ONCE)
+            imgui.set_next_window_size(TheSchedular.searchwindowsize.x, TheSchedular.searchwindowsize.y, imgui.ONCE)
+            imgui.begin("Search", TheSchedular.SearchFile)
+            if TheSchedular.rescan:
+                dirlist= Path(TheSchedular.path).glob(TheSchedular.search)
+                TheSchedular.rescan = False
+            if imgui.button("Prev"):
+                TheSchedular.path = TheSchedular.lastpath.pop()
+                TheSchedular.rescan = True
+            imgui.same_line()    
+            if imgui.button("<-"):
+                TheSchedular.lastpath.append(TheSchedular.path)
+                TheSchedular.path = os.path.split(TheSchedular.path)[0]
+                TheSchedular.rescan = True
+            imgui.same_line()
+            ChangePath = None
+            text_val = TheSchedular.path
+            ChangePath = imgui.input_text('path', text_val, 256, flags=(imgui.INPUT_TEXT_ENTER_RETURNS_TRUE))
+            if ChangePath:
+                try: 
+                    if Path(text_val).is_file():
+                        videopath1 = text_val
+                except:
+                    try:
+                        if Path(text_val).is_dir():
+                            TheSchedular.path = text_val
+                            TheSchedular.rescan = True
+                    except:
+                        imgui.text("Invalid Path")
+            imgui.same_line()
+            if imgui.button("{0}".format(TheSchedular.search)):
+                imgui.open_popup("Search")
+                imgui.same_line()
+            if imgui.begin_popup("Search"):
+                types = []
+                files = [x for x in dirlist if x.is_file()]
+                types = ['*'+x.suffix.lower() for x in files if x.suffix.lower() not in types and x.suffix is not '']
+                types = list(dict.fromkeys(types))
+                types.append("*")
+                for x in types:
+                    if imgui.selectable(x, True):
+                        TheSchedular.search = x
+                imgui.end_popup()
+            imgui.begin_child(TheSchedular.path)
+            imgui.separator()
+            tempdirlist = []
+            for fileordir in dirlist:
+                tempdirlist.append(fileordir)
+                if fileordir.is_dir():
+                    if imgui.selectable("(Dir)" + fileordir.name + "/", False):
+                        TheSchedular.lastpath.append(TheSchedular.path)
+                        TheSchedular.path = fileordir._str
+                        TheSchedular.rescan = True
+                else:
+                    if imgui.selectable(fileordir.name, False):
+                        videopath1 = fileordir._str
+            dirlist = tempdirlist
+            imgui.end_child()
+            if videopath1:
+                cued = Schedular.initVideo(videopath1)
+                if cued:
+                    Error = True       
+                else:
+                    TheSchedular.SearchFile = False
+            if Error:
+                imgui.begin("Error", True, flags=(imgui.WindowFlags.NoResize|imgui.WindowFlags.NoMove|imgui.WindowFlags.NoTitleBar))
+                imgui.text("{0}".format("Could not load file"))
+                if imgui.button("OK"):
+                    Error = False
+                imgui.end()
+            imgui.end()
 
     if TheSchedular.PlayVideo:
         if TheSchedular.startvideo:
@@ -762,19 +846,7 @@ while(not glfw.window_should_close(window)):
         if TheSchedular.active(): 
             if TheSchedular.runtime() > runtime:
                 pl = 0
-                tmlist = TheSchedular.VideoPlaylist()
-                if not tmlist:
-                    TheSchedular.startvideo=True
-                    TheSchedular.Pause = False
-                    TheSchedular.PlayVideo = False    
-                else:
-                    image = None
-                    for im in tmlist:
-                        if image is not None:
-                            cv2.addWeighted(image, alpha, im, beta, gamma)
-                        else:
-                            image = im
-                    # imgui.image(image)
+                TheSchedular.VideoPlaylist()
             else:
                 TheSchedular.startvideo=True
                 TheSchedular.PlayVideo = False
@@ -819,93 +891,7 @@ while(not glfw.window_should_close(window)):
         TheSchedular.SetVideos(TheSchedular.ActiveCue)
 
     imgui.end()
-    
-    if not TheSchedular.PlayVideo:
-        if TheSchedular.ShowGuide:
-            imgui.set_next_window_position(imgui.Vec2(20, 20), imgui.ONCE)
-            imgui.set_next_window_size(imgui.Vec2(500, 300), imgui.ONCE)
-            imgui.begin("User Guide", TheSchedular.ShowGuide)
-            imgui.show_user_guide()
-            imgui.end
-
-        if TheSchedular.SearchFile:
-            videopath1 = None
-            ret = -1
-            imgui.set_next
-            imgui.set_next_window_position(TheSchedular.searchwindow, imgui.ONCE)
-            imgui.set_next_window_size(TheSchedular.searchwindowsize, imgui.ONCE)
-            imgui.begin("Search", TheSchedular.SearchFile)
-            if rescan:
-                dirlist= Path(path).glob(search)
-                rescan = False
-            if imgui.button("Prev"):
-                path = lastpath.pop()
-                rescan = True
-            imgui.same_line()    
-            if imgui.button("<-"):
-                lastpath.append(path)
-                path = os.path.split(path)[0]
-                rescan = True
-            imgui.same_line()
-            ChangePath = None
-            text_val = imgui.String(path)
-            ChangePath = imgui.input_text('path', text_val, 256, flags=(imgui.InputTextFlags.EnterReturnsTrue))
-            if ChangePath:
-                try: 
-                    if Path(text_val.val).is_file():
-                        videopath1 = text_val
-                except:
-                    try:
-                        if Path(text_val).is_dir():
-                            path = text_val
-                            rescan = True
-                    except:
-                        imgui.text("Invalid Path")
-            imgui.same_line()
-            if imgui.button("{0}".format(search)):
-                imgui.open_popup("Search")
-                imgui.same_line()
-            if imgui.begin_popup("Search"):
-                types = []
-                files = [x for x in dirlist if x.is_file()]
-                types = ['*'+x.suffix.lower() for x in files if x.suffix.lower() not in types and x.suffix is not '']
-                types = list(dict.fromkeys(types))
-                types.append("*")
-                for x in types:
-                    if imgui.selectable(x, True):
-                        search = x
-                imgui.end_popup()
-            imgui.begin_child(path)
-            imgui.separator()
-            tempdirlist = []
-            for fileordir in dirlist:
-                tempdirlist.append(fileordir)
-                if fileordir.is_dir():
-                    if imgui.selectable("(Dir)" + fileordir.name + "/", False):
-                        lastpath.append(path)
-                        path = fileordir._str
-                        rescan = True
-                else:
-                    if imgui.selectable(fileordir.name, False):
-                        videopath1 = fileordir._str
-            dirlist = tempdirlist
-            imgui.end_child()
-            if videopath1:
-                cued = Schedular.initVideo(videopath1)
-                if cued:
-                    Error = True       
-                else:
-                    TheSchedular.SearchFile = False
-            if Error:
-                imgui.begin("Error", True, flags=(imgui.WindowFlags.NoResize|imgui.WindowFlags.NoMove|imgui.WindowFlags.NoTitleBar))
-                imgui.text("{0}".format("Could not load file"))
-                if imgui.button("OK"):
-                    Error = False
-                imgui.end()
-            imgui.end()
-
-    gl.glClearColor(0., 0., 0., 1)
-    gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+        
     imgui.render()
     impl.render(imgui.get_draw_data())
     glfw.swap_buffers(window)

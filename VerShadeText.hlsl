@@ -8,7 +8,7 @@ out vec4 fCol;
 out vec2 fTex;
 
 void main(void){
-    gl_Position = projection * modelView * vec4(vPos.xyz, 1.0);
+    gl_Position = vec4(vPos.xyz, 1.0);
     fTex = vTex;
     fCol = vec4(1.0, 1.0, 1.0, 1.0);
 }
