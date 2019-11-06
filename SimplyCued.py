@@ -541,8 +541,8 @@ while(not glfw.window_should_close(window)):
     imgui.begin("Tools", False, imgui.WINDOW_MENU_BAR)
     if imgui.begin_menu_bar():
         if imgui.begin_menu('Menu', True):
-            imgui.show_style_selector("Style")
-            if imgui.selectable('help', False):
+            # imgui.show_style_selector("Style")
+            if imgui.selectable('help')[0]:
                 TheSchedular.ShowGuide = True
             imgui.end_menu()
         imgui.end_menu_bar()
@@ -689,13 +689,13 @@ while(not glfw.window_should_close(window)):
                     if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"]:
                         if imgui.begin_menu("{0} {1}".format(index,TheSchedular.State[TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][vid]['State']])):
                             for st in TheSchedular.State:
-                                if imgui.selectable(st,False):
+                                if imgui.selectable(st)[0]:
                                     TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][vid]['State'] = TheSchedular.State.index(st)
                             imgui.end_menu()
                     else:
                         if imgui.begin_menu("{0} Unchanged".format(index), True):
                             for st in TheSchedular.State:
-                                if imgui.selectable(st, False):
+                                if imgui.selectable(st)[0]:
                                     if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"]:
                                         TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][vid]['State'] = TheSchedular.State.index(st)
                                     else:
@@ -711,13 +711,13 @@ while(not glfw.window_should_close(window)):
                         blockindex = -1
                         if imgui.begin_menu('{0} Add A Block'.format(index)):
                             for fil in TheSchedular.Filter:
-                                if imgui.selectable('Add {0}'.format(fil), False):
+                                if imgui.selectable('Add {0}'.format(fil))[0]:
                                     TheSchedular.AddVPLBlock(index, fil, TheSchedular.ActiveCue, blockindex, None)
                             imgui.end_menu()
                         if len(Filterkeys) > 0:
                             for que in Filterkeys:
                                 blockindex = blockindex + 1
-                                if imgui.selectable(que,False):
+                                if imgui.selectable(que)[0]:
                                     TheSchedular.EditFilter(que, TheSchedular.ActiveCue)
                                     
                                 # if imgui.begin_drag_drop_source(imgui.DragDropFlags.__flags__):
@@ -742,7 +742,7 @@ while(not glfw.window_should_close(window)):
                     else:
                         if imgui.begin_menu('{0} Add A Block'.format(index)):
                             for fil in TheSchedular.Filter:
-                                if imgui.selectable('Add {0}'.format(fil), False):
+                                if imgui.selectable('Add {0}'.format(fil))[0]:
                                     TheSchedular.AddVPLBlock(index, fil, TheSchedular.ActiveCue, blockindex, None)
                             imgui.end_menu()
                     imgui.next_column()
@@ -774,19 +774,18 @@ while(not glfw.window_should_close(window)):
                 TheSchedular.rescan = True
             imgui.same_line()
             ChangePath = None
-            text_val = TheSchedular.path
-            ChangePath = imgui.input_text('path', text_val, 256, flags=(imgui.INPUT_TEXT_ENTER_RETURNS_TRUE))
-            if ChangePath:
+            ChangePath = imgui.input_text('path', TheSchedular.path, 256, flags=(imgui.INPUT_TEXT_ENTER_RETURNS_TRUE))
+            if ChangePath[0]:
                 try: 
-                    if Path(text_val).is_file():
-                        videopath1 = text_val
-                except:
-                    try:
-                        if Path(text_val).is_dir():
-                            TheSchedular.path = text_val
-                            TheSchedular.rescan = True
-                    except:
+                    if Path(ChangePath[1]).is_file():
+                        videopath1 = ChangePath[1]
+                    elif Path(ChangePath[1]).is_dir():
+                        TheSchedular.path = ChangePath[1]
+                        TheSchedular.rescan = True
+                    else:
                         imgui.text("Invalid Path")
+                except:
+                    imgui.text("Invalid Path")
             imgui.same_line()
             if imgui.button("{0}".format(TheSchedular.search)):
                 imgui.open_popup("Search")
@@ -798,7 +797,7 @@ while(not glfw.window_should_close(window)):
                 types = list(dict.fromkeys(types))
                 types.append("*")
                 for x in types:
-                    if imgui.selectable(x, True):
+                    if imgui.selectable(x)[0]:
                         TheSchedular.search = x
                 imgui.end_popup()
             imgui.begin_child(TheSchedular.path)
@@ -807,26 +806,26 @@ while(not glfw.window_should_close(window)):
             for fileordir in dirlist:
                 tempdirlist.append(fileordir)
                 if fileordir.is_dir():
-                    if imgui.selectable("(Dir)" + fileordir.name + "/", False):
+                    if imgui.selectable("(Dir)" + fileordir.name + "/")[0]:
                         TheSchedular.lastpath.append(TheSchedular.path)
                         TheSchedular.path = fileordir._str
                         TheSchedular.rescan = True
                 else:
-                    if imgui.selectable(fileordir.name, False):
+                    if imgui.selectable(fileordir.name)[0]:
                         videopath1 = fileordir._str
             dirlist = tempdirlist
             imgui.end_child()
             if videopath1:
-                cued = Schedular.initVideo(videopath1)
+                cued = TheSchedular.initVideo(videopath1)
                 if cued:
-                    Error = True       
+                    TheSchedular.Error = True       
                 else:
                     TheSchedular.SearchFile = False
-            if Error:
+            if TheSchedular.Error:
                 imgui.begin("Error", True, flags=(imgui.WindowFlags.NoResize|imgui.WindowFlags.NoMove|imgui.WindowFlags.NoTitleBar))
                 imgui.text("{0}".format("Could not load file"))
                 if imgui.button("OK"):
-                    Error = False
+                    TheSchedular.Error = False
                 imgui.end()
             imgui.end()
 
