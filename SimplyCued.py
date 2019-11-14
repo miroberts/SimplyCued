@@ -271,9 +271,10 @@ class Schedular():
     def initCue(self, startcon, name):
         self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":name, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Filters":dict(), "Filterindex":0}
         for vid in range(len(self.Videodict.keys())):
+            w, h = glfw.get_framebuffer_size(window)
             self.AddVPLBlock(self.index, 'mvMatrix', self.Cueindex, np.array([
-                1.0, 0.0,  0.0, 0.0,
-                0.0, 1.0,  0.0, 0.0,
+                2, 0.0,  0.0, 0.0,
+                0.0, 2,  0.0, 0.0,
                 0.0, 0.0,  1.0, 0.0,
                 0.0, 0.0, 0.0, 1.0], np.float32))
             self.AddVPLBlock(vid, 'Color', self.Cueindex, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Nagitive": False})
@@ -291,13 +292,13 @@ class Schedular():
         ret = cuedvideo.LoadVideo(videopath)
         if not (ret == -1):
             self.Videodict["{0}{1}".format(cuedvideo.name, self.index)] = {'Index':self.index, 'Name':cuedvideo.name, 'Filters':None, 'State':0, 'StartTime':None, 'PlayOffset': 0, 'StartFrame':1, 'Video': cuedvideo}
-            
+            w, h = glfw.get_framebuffer_size(window)
             for cu in range(len(self.CuesList)):
                 self.AddVPLBlock(self.index, 'mvMatrix', cu, np.array([
-                    1.0, 0.0,  0.0, 0.0,
-                    0.0, 1.0,  0.0, 0.0,
+                    2.0, 0.0,  0.0, 0.0,
+                    0.0, 2.0,  0.0, 0.0,
                     0.0, 0.0,  1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0], np.float32))
+                    -1.0, -1.0, 0.0, 1.0], np.float32))
                 self.AddVPLBlock(self.index, 'Color', cu, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Nagitive": False})
             self.index = self.index+1
             self.FullRunTime = self.FullRunTime + cuedvideo.duration
@@ -361,7 +362,7 @@ class Schedular():
             frame = None
             if edit and (self.Videodict[x]['State'] == 1 or self.Videodict[x]['State'] == 2):
                 self.renderer.rend(self.Videodict[x]['Video'].firstimage,self.Videodict[x]["Filters"])
-            else:
+            elif not edit:
                 if self.Videodict[x].get("Filters"):
                     if self.Videodict[x]["Filters"]['State'] == 1:#1 = get next frame
                         f = int((time.time() - self.Videodict[x]['StartTime'] + self.Videodict[x]['PlayOffset']) * self.Videodict[x]['Video'].fps)
@@ -479,6 +480,7 @@ class Schedular():
                     self.Videodict[vname]["Filters"] = self.Cues[cuename]["Filters"].get(vname)
                     if self.Cues[cuename]["Filters"][vname]['State'] == 1:
                         self.Videodict[vname]['StartTime'] = time.time()
+                    self.Videodict[vname]["State"] = self.Cues[cuename]["Filters"][vname]['State']
         else:
             n = 3
 
@@ -494,6 +496,7 @@ class Schedular():
 
     def AdvanceCue(self):
         if TheSchedular.Cueindex <= self.StagedCue:
+            glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
             self.PlayVideo = False
             self.startvideo = False
             self.Pause = False
@@ -515,7 +518,7 @@ class Schedular():
 m = get_monitors()
 # ctx.init(m[0].width, m[0].height, "SimplyCued")
 
-FirstWindow = imgui.Vec2(int(m[0].width), int(m[0].height))
+FirstWindow = imgui.Vec2(int(m[0].width*1.25), int(m[0].height*1.25))
 
 imgui.create_context()
 
@@ -528,24 +531,24 @@ window = glfw.create_window(
     FirstWindow.x, FirstWindow.y, "SimplyCued", None, None
 )
 glfw.make_context_current(window)
-
+glfw.set_window_monitor(window,None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
 if not window:
     glfw.terminate()
     print("Could not initialize Window")
     exit(1)
 
-def windowResize(windo, inx, iny):
-    w, h = glfw.get_framebuffer_size(windo)
-    gl.glViewport(0, 0, w, h)
+# def windowResize(windo, inx, iny):
+#     w, h = glfw.get_framebuffer_size(windo)
+#     gl.glViewport(0, 0, w, h)
 
-glfw.set_window_size_callback(window, windowResize)
+# glfw.set_window_size_callback(window, windowResize)
 
 impl = GlfwRenderer(window)
 
 TheSchedular = Schedular()
 
 Debug = None
-Debug = True
+# Debug = True
 
 #Screen
 # ##### More then one screen?
@@ -569,6 +572,19 @@ def Load(self, file):
 #     playtime = dill.load(f)
 #     f.close()
 
+def Checkbounds(val):
+    if val > 0:
+        if val <= 2:
+            return val
+        else:
+            return 2
+    else:
+        if val >= -1:
+            return val
+        else:
+            return -1
+
+
 
 while(not glfw.window_should_close(window)):
     gl.glClearColor(0., 0., 0., 1)
@@ -577,6 +593,7 @@ while(not glfw.window_should_close(window)):
     impl.process_inputs()
 
     if TheSchedular.PlayVideo:
+        glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
         if TheSchedular.startvideo:
             TheSchedular.SetVideos(TheSchedular.ActiveCue)
             TheSchedular.startvideo = False
@@ -589,6 +606,7 @@ while(not glfw.window_should_close(window)):
                 TheSchedular.VideoPlaylist(False)
                 runtime = time.time() - starttime
             else:
+                glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
                 TheSchedular.startvideo=True
                 TheSchedular.PlayVideo = False
                 TheSchedular.Pause = False
@@ -620,7 +638,7 @@ while(not glfw.window_should_close(window)):
 
         imgui.set_next_window_position(20, 20, imgui.ONCE)
         imgui.set_next_window_size(800, 500, imgui.ONCE)
-        imgui.begin("Tools", False, imgui.WINDOW_MENU_BAR)
+        imgui.begin("Simply Cued", False, imgui.WINDOW_MENU_BAR)
         if imgui.begin_menu_bar():
             if imgui.begin_menu('Menu', True):
                 # imgui.show_style_selector("Style")
@@ -882,6 +900,7 @@ while(not glfw.window_should_close(window)):
             TheSchedular.AdvanceCue()
 
         if TheSchedular.EditFilters:
+            glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
             videopath1 = None
             ret = -1
             imgui.set_next_window_position(TheSchedular.searchwindow.x,TheSchedular.searchwindow.y , imgui.ONCE)
@@ -902,10 +921,9 @@ while(not glfw.window_should_close(window)):
                 if not TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt].get('videoindex', True):
                     if TheSchedular.EditInfo == TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]['videoindex']:
                         for x in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt].keys():
-                            if x not in "Index Menu videoindex".split():
-                                if x == "Name":
-                                    imgui.text(x)
-                                elif x == "State":
+                            if x not in "Index Menu videoindex name".split():
+                                #There isn't a filter named State
+                                if x == "State":
                                     if imgui.radio_button(x,TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]):
                                         TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = True
                         if "Color" in filt:
@@ -921,21 +939,60 @@ while(not glfw.window_should_close(window)):
                                 else:
                                     TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]["Data"][col] = imgui.slider_float(col,TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]['Data'][col][1],0, 1,'%.3f', 1.0)
                         elif "mvMatrix" in filt:
-                            if imgui.is_mouse_dragging(0,-1.0):
-                                w, h = glfw.get_framebuffer_size(window)
-                                pos = imgui.get_mouse_drag_delta(0,-1.0)
+                            imgui.new_line()
+                            imgui.same_line(spacing=50)
+                            if imgui.button("Reset Video Position"):
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = -1
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = -1
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0] = 2
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5] = 2
+                            w, h = glfw.get_framebuffer_size(window)
+                            if imgui.is_mouse_down(0):
+                                pos = imgui.get_mouse_pos()
+
+                                posx = (pos[0]/w*2)-1
+                                h1 = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12]
+                                h2 = h1+TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
+                                posy = -1*((pos[1]/h*2)-1)
+                                h3 = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13]
+                                h4 = h3+TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                difx = 0
+                                dify = 0
+
+                                if posx > h1*.75 and posx < h2*.75 and posy > h3*.75 and posy < h4*.75:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] =  posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]/2
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] =  posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]/2 
                                 
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = (pos[0]/w*2)-1
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = -1*((pos[1]/h*2)-1)
+                                elif abs(posx - h1) < .2 and abs(posy - h3) < .2:
+                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx
+                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy
+                                elif abs(posx - h2) < .2 and abs(posy - h4) < .2:
+                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx
+                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                elif abs(posx - h1) < .2 and abs(posy - h4) < .2:
+                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx
+                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                    
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                elif abs(posx - h2) < .2 and abs(posy - h3) < .2:
+                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
+                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy
+                                    
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0] + difx
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5] + dify
                         else:
                             imgui.selectable(filt)[0]
             TheSchedular.SetVideos(TheSchedular.ActiveCue)
             TheSchedular.VideoPlaylist(True)
-            
-             # react to mouse drags and what not.
-            
-
-
+            if not TheSchedular.EditFilters:
+                glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)        
             imgui.end()
 
         if Debug is not None:
@@ -950,6 +1007,7 @@ while(not glfw.window_should_close(window)):
                 TheSchedular.initVideo("D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv")
 
             if imgui.button("Reset", 50, 50):
+                glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
                 TheSchedular.PlayVideo = False
                 TheSchedular.startvideo = True
                 TheSchedular.Pause = False
