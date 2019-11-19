@@ -2,7 +2,8 @@
 
 in vec4 fCol;
 in vec2 fTex;
-in float fNgt;
+
+uniform float fNgt;
 
 uniform sampler2D samTex;
 out vec4 FragColor;

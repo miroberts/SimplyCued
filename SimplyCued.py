@@ -12,7 +12,8 @@ from mathutils import Matrix
 import dill   #save and load data in memory
 from pathlib import Path
 from screeninfo import get_monitors
-
+import select
+import sys
 #playsound('/path/to/a/sound/file/you/want/to/play.mp3')
 #pyinstaller -w -F SimplyCued.py
 #D:\Documents\GradSchool\Grad Project\VideoEditor\Sample Video
@@ -89,6 +90,7 @@ class Renderer():
         
         gl.glEnableVertexAttribArray(self.vPos)
         gl.glEnableVertexAttribArray(self.vTex)
+        
 
         self.projectionMatrix = gl.glGetUniformLocation(self.program, "projection")
         self.modelViewMatrix = gl.glGetUniformLocation(self.program, "modelView")
@@ -107,20 +109,31 @@ class Renderer():
         
 
     def rend(self, frame, Data):
+        scalerx = 0
+        if Data.get('SlideIn'):
+            if Data['SlideIn']['x'][0] > 0:
+                scalerx = Data['SlideIn']['x'][0] * Data['SlideIn']['x'][1] # -1 or 1
+                Data['SlideIn']['x'][0] = Data['SlideIn']['x'][0] - Data['SlideIn']['x'][2]
+        if Data.get('SlideOut'):
+            if Data['SlideOut']['x'][0] > 0:
+                scalerx = Data['SlideOut']['x'][0] * Data['SlideOut']['x'][1] # -1 or 1
+                Data['SlideOut']['x'][0] = Data['SlideOut']['x'][0] - Data['SlideOut']['x'][2] # rate of change
+
         gl.glUseProgram(self.program)
         mvMatrix=[]
         for da in Data.keys():
             if 'mvMatrix' in da:
                 mvMatrix = Data[da]['Data']
+                mvMatrix[12] = scalerx + Data[da]['Data'][12]
             if 'Color' in da:
                 if Data[da]['Data']['Nagitive']:
-                    self.vNgt = 1
+                    gl.glUniform4fv(self.vNgt, 1, 1.0)
                 else:
-                    self.vNgt = 0
+                    gl.glUniform4fv(self.vNgt, 1, 0.0)
+
         gl.glUniformMatrix4fv(self.modelViewMatrix, 1, gl.GL_FALSE, mvMatrix)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.buff)
         gl.glVertexAttribPointer(self.vPos, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
-        gl.glVertexAttribPointer(self.vTex, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
         gl.glVertexAttribPointer(self.vTex, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
 
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.texture)
@@ -141,17 +154,6 @@ class Renderer():
 
         
         
-        
-
-class CuingBlock():
-    # play on mouse click or key, 
-    # stop on mouse click or key, 
-    # play n number of times, and 
-    # play for n seconds or milliseconds . 
-    Cuetype = None
-    kwargs = {}
-    def SetCue(self, typ, **kwargs):
-        self.Cuetyep = typ
 
 class CuedVideo():
     vidcap = None
@@ -192,9 +194,6 @@ class CuedVideo():
     def nextframe(self,frame_number):
         # frame-by-frame
         if frame_number < self.frame_count:
-            # temptime = time.time()
-            # 
-            # imgui.text('Set Time: {0}'.format(time.time()-temptime))
             if self.lastframeid < frame_number:
                 ret, frame = self.vidcap.read()
                 if ret:       
@@ -216,10 +215,7 @@ class CuedVideo():
         self.vidcap.set(2,f)  
 
 class Schedular():
-    framedone = []
-    # Video List
     keylist = []
-    cuekeylist = []
     Cueindexlist = []
     indexlist = []
     FullRunTime = 0
@@ -227,7 +223,6 @@ class Schedular():
     Cues = dict()
     index = 0
     Cueindex = 0
-    ##Test
     test = 0
     EditFilters = False
     EditInfo = None
@@ -242,7 +237,7 @@ class Schedular():
     windowpos = imgui.Vec2(20,20)
     windowsize = imgui.Vec2(200, 200)
     searchwindow = imgui.Vec2(20,20)
-    searchwindowsize = imgui.Vec2(200, 200)
+    searchwindowsize = imgui.Vec2(800, 300)
     Inersize = imgui.Vec2(0,-45)
     Inercuesize = imgui.Vec2(0,150)
     Incuesize = imgui.Vec2(0,35)
@@ -252,9 +247,9 @@ class Schedular():
     lastpath = [os.path.expanduser("~")]
     dirlist = []
     startvideo = False
-    CuesList = ["Click", "Key", "Repeat", "Time", "Transition"] 
+    CuesList = ["Click", "StopOnClick", "Repeat", "Time", "Transition"] 
     Filter = ["Filter","Mask","View Port"]
-    State= ["Unchanged", "On", "Off", "Paused"]
+    State= ["On", "Paused", "Off"]
     ActiveCue = 0
     StagedCue = 0
 
@@ -264,42 +259,50 @@ class Schedular():
     Error = False
     selectedindex = None
     Repeated = 0
+    mouse = True
+    starttime = time.time()
+    runtime = 0.0
 
     def __init__(self):
         self.renderer = Renderer()
 
     def initCue(self, startcon, name):
         self.Cues["{0}{1}".format(name, self.Cueindex)] = {"Name":name, "StartCondition":startcon, "Index":self.Cueindex, 'starttime': None, "Filters":dict(), "Filterindex":0}
-        for vid in range(len(self.Videodict.keys())):
-            w, h = glfw.get_framebuffer_size(window)
-            self.AddVPLBlock(self.index, 'mvMatrix', self.Cueindex, np.array([
+        for vid in self.Videodict.keys():
+            self.AddVPLBlock(vid, 'mvMatrix', self.Cueindex, np.array([
                 2, 0.0,  0.0, 0.0,
                 0.0, 2,  0.0, 0.0,
                 0.0, 0.0,  1.0, 0.0,
-                0.0, 0.0, 0.0, 1.0], np.float32))
-            self.AddVPLBlock(vid, 'Color', self.Cueindex, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Nagitive": False})
+                -1.0, -1.0, 0.0, 1.0], np.float32))
+            self.AddVPLBlock(vid, 'Color', self.Cueindex, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Distortion" : [0,0.0], "Nagitive": False})
+        if 'Repeat' in name:
+            TheSchedular.Cues["{0}{1}".format(name, self.Cueindex)]['Repeated'] = [0,0]
+
         self.Cueindex = self.Cueindex+1
         self.rebuildCuekeylist()
     
     def AddVPLBlock(self, vid, block, cuid, data):
         for n in self.Cues.keys():
             if self.Cues[n]["Index"] == cuid:
-                self.Cues[n]["Filters"]["{0}{1}".format(block, self.Cues[n]["Filterindex"])] = {"Name":block, "Index":self.Cues[n]["Filterindex"], 'Data': data, 'videoindex':vid, "Menu": False}
+                if self.Cues[n]["Filters"].get(vid):
+                    self.Cues[n]["Filters"][vid].update({"{0}{1}".format(block, self.Cues[n]["Filterindex"]): {"Name":block, "Index":self.Cues[n]["Filterindex"], 'Data': data, "Menu": False}, 'State':0})
+                else:
+                    self.Cues[n]["Filters"][vid] = {"{0}{1}".format(block, self.Cues[n]["Filterindex"]): {"Name":block, "Index":self.Cues[n]["Filterindex"], 'Data': data, "Menu": False}, 'State':0}
                 self.Cues[n]["Filterindex"] = self.Cues[n]["Filterindex"] + 1
-        #TheSchedular.Cues[TheSchedular.Cueindexlist[ActiveCue]]["Filters"][vid]['Menu']
+
     def initVideo(self, videopath):
         cuedvideo = CuedVideo()
         ret = cuedvideo.LoadVideo(videopath)
         if not (ret == -1):
-            self.Videodict["{0}{1}".format(cuedvideo.name, self.index)] = {'Index':self.index, 'Name':cuedvideo.name, 'Filters':None, 'State':0, 'StartTime':None, 'PlayOffset': 0, 'StartFrame':1, 'Video': cuedvideo}
+            self.Videodict["{0}{1}".format(cuedvideo.name, self.index)] = {'Index':self.index, 'Name':cuedvideo.name, 'Filters':None, 'State':0, 'StartTime':None, 'PlayOffset': 0, 'StartFrame':1, 'Video': cuedvideo, 'Repeated':[0,0]}
             w, h = glfw.get_framebuffer_size(window)
-            for cu in range(len(self.CuesList)):
-                self.AddVPLBlock(self.index, 'mvMatrix', cu, np.array([
+            for cu in range(len(self.Cueindexlist)):
+                self.AddVPLBlock("{0}{1}".format(cuedvideo.name, self.index), 'mvMatrix', cu, np.array([
                     2.0, 0.0,  0.0, 0.0,
                     0.0, 2.0,  0.0, 0.0,
                     0.0, 0.0,  1.0, 0.0,
                     -1.0, -1.0, 0.0, 1.0], np.float32))
-                self.AddVPLBlock(self.index, 'Color', cu, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Nagitive": False})
+                self.AddVPLBlock("{0}{1}".format(cuedvideo.name, self.index), 'Color', cu, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Distortion" : [0,0.0], "Nagitive": False})
             self.index = self.index+1
             self.FullRunTime = self.FullRunTime + cuedvideo.duration
             self.rebuildVideokeylist()
@@ -342,71 +345,62 @@ class Schedular():
         self.rebuildCuekeylist()
 
     def MoveVPLBlock(self, cue, vid, Source, Destination):
-        name = ""
-        keys = self.Cues[cue]["Filters"].keys()
-        for key in keys:
-            if Source == self.Cues[cue]['Filters'][key]['Index']:
-                name = key
+        keys = self.Cues[cue]["Filters"][self.indexlist[vid]].keys()
         if Source < Destination:
             for key in keys:
-                if self.Cues[cue]['Filters'][key]['Index'] <= Destination and self.Cues[cue]['Filters'][key]['Index'] > Source and self.Cues[cue]['Filters'][key]['Index'] > 0:
-                    self.Cues[cue]['Filters'][key]['Index'] = self.Cues[cue]['Filters'][key]['Index']-1
+                if self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] <= Destination and self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] > Source and self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] > 0:
+                    self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] = self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index']-1
         if Source > Destination:
             for key in keys:
-                if self.Cues[cue]['Filters'][key]['Index'] >= Destination and self.Cues[cue]['Filters'][key]['Index'] < Source:
-                    self.Cues[cue]['Filters'][key]['Index'] = self.Cues[cue]['Filters'][key]['Index'] + 1
-        self.Cues[cue]['Filters'][name]['Index'] = Destination
+                if self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] >= Destination and self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] < Source:
+                    self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] = self.Cues[cue]['Filters'][self.indexlist[vid]][key]['Index'] + 1
+        self.Cues[cue]['Filters'][self.indexlist[vid]]['Index'] = Destination
 
     def VideoPlaylist(self, edit):
-        for x in self.Videodict.keys():
+        for x in self.indexlist:
             frame = None
-            if edit and (self.Videodict[x]['State'] == 1 or self.Videodict[x]['State'] == 2):
+            if edit > 0 and (self.Videodict[x]['State'] == 0 or self.Videodict[x]['State'] == 1):
                 self.renderer.rend(self.Videodict[x]['Video'].firstimage,self.Videodict[x]["Filters"])
             elif not edit:
                 if self.Videodict[x].get("Filters"):
-                    if self.Videodict[x]["Filters"]['State'] == 1:#1 = get next frame
+                    if self.Videodict[x]["Filters"]['State'] == 0:#0 = get next frame
                         f = int((time.time() - self.Videodict[x]['StartTime'] + self.Videodict[x]['PlayOffset']) * self.Videodict[x]['Video'].fps)
-                        self.framedone.append(f)
                         if f >=0 and f <=  self.Videodict[x]['Video'].frame_count:
+                            if self.Videodict[x]['Filters'].get('PushOut'):
+                                #not per video...
+                                # ##### Not Finished######
+                                n = 1
+
                             frame =  self.Videodict[x]['Video'].nextframe(f)
                             if frame is not None:
                                 self.renderer.rend(frame,self.Videodict[x]["Filters"])
+                            elif self.Videodict[x]['Repeated'][1] > 0 and self.Videodict[x]['Repeated'][1] > self.Videodict[x]['Repeated'][0]: 
+                                # play n number of times,
+                                self.Videodict[x]['Video'].Seek(0)
+                                self.Videodict[x]['Video'].lastframe = self.Videodict[x]['Video'].firstimage
+                                self.Videodict[x]['StartTime'] = time.time()
+                                self.Videodict[x]['Video'].lastframeid = 0
+                                self.renderer.rend(self.Videodict[x]['Video'].firstimage,self.Videodict[x]["Filters"])
+                                self.Videodict[x]['Repeated'][0] = self.Videodict[x]['Repeated'][0] + 1
+                            else: 
+                                self.Videodict[x]["Filters"]['State'] = 2
+                                self.Videodict[x]['Video'].Seek(0)
+                                self.Videodict[x]['Video'].lastframe = self.Videodict[x]['Video'].firstimage
+
+
+
                                 
-                    elif self.Videodict[x]["Filters"]['State'] == 2:#2 == paused video
+                    elif self.Videodict[x]["Filters"]['State'] == 1:#1 == paused video
                         if self.Videodict[x]['Video'].lastframe is not None:
                             frame = self.Videodict[x]['Video'].lastframe
                             self.renderer.rend(frame,self.Videodict[x]["Filters"])
-            
-                #else 0 means off
-
-    # def applyfilters(self, viid, frame, ):
-    #     return frame
-    #     finishedFrame = frame
-    #     h, w, channels = frame.shape
-    #     for fil in self.Videodict[viid]["Filters"]:
-    #         if fil == "Resize":
-    #             # https://stackoverflow.com/questions/4195453/how-to-resize-an-image-with-opencv2-0-and-python2-6
-    #             finishedFrame = cv2.resize(finishedFrame, self.Videodict[viid]["Filters"]['Resize'])
-    #         elif fil == 'Mask':
-    #             # https://stackoverflow.com/questions/10469235/opencv-apply-mask-to-a-color-image
-    #             # https://www.programcreek.com/python/example/85661/cv2.bitwise_and
-    #             finishedFrame = cv2.bitwise_and(finishedFrame,self.Videodict[viid]["Filters"]['Mask'])
-    #         elif fil == 'Viewport':
-    #             # https://stackoverflow.com/questions/18573784/how-can-i-resample-a-subarea-of-an-image-for-a-viewport-application
-    #             finishedFrame = cv2.remap(finishedFrame,self.Videodict[viid]["Filters"]['Remap']['map1'], self.Videodict[viid]["Filters"]['Remap']['map2'])
-    #         elif fil == 'Blur':
-    #             # https://opencv-python-tutroals.readthedocs.io/en/latest/py_tutorials/py_imgproc/py_filtering/py_filtering.html
-    #             # https://www.tutorialkart.com/opencv/python/opencv-python-gaussian-image-smoothing/
-    #             finishedFrame = cv2.GaussianBlur(finishedFrame,self.Videodict[viid]["Filters"]['Blur']['ksize'],self.Videodict[viid]["Filters"]['Blur']['sigma'])
-    #         elif fil == 'Color':
-    #             # https://stackoverflow.com/questions/50716214/python-opencv-apply-colored-mask-to-image
-    #             finishedFrame = np.power(finishedFrame, self.Videodict[viid]["Filters"]['Color'])
-
-    #     return finishedFrame
+                #else 2 means off
 
     def removeVideo(self,viid):
         removekey = {}
         if viid is not None:
+            for cue in self.Cues.keys():
+                self.Cues[cue]["Filters"].pop(self.indexlist[viid], None)
             for key, value in self.Videodict.items():
                 if viid == self.Videodict[key]['Index']:
                     self.Videodict[key]['Video'].CloseVideo()
@@ -418,13 +412,13 @@ class Schedular():
                         removekey[key]['Index'] = self.Videodict[key]['Index']-1
             self.Videodict = removekey
             self.rebuildVideokeylist()
+            
 
     def removeCue(self,cuid):
         removekey = {}
         if cuid is not None:
             for key, value in self.Cues.items():
                 if cuid == self.Cues[key]['Index']:
-                    self.Cues[key]['Video'].CloseVideo()
                     if self.Cueindex > 0:
                         self.Cueindex = self.Cueindex - 1
                 else:
@@ -432,7 +426,7 @@ class Schedular():
                     if self.Cues[key]['Index'] > cuid and self.Cues[key]['Index'] > 0:
                         removekey[key]['Index'] = self.Cues[key]['Index']-1
             self.Cues = removekey
-            self.rebuildVideokeylist()
+            self.rebuildCuekeylist()
     def active(self):
         if len(self.Videodict.keys()) > 0:
             return True
@@ -446,24 +440,18 @@ class Schedular():
         for i in self.Videodict.keys():
             temdic[self.Videodict['{0}'.format(i)]['Index']] = self.Videodict[i]['Name']
             temdicindex[self.Videodict['{0}'.format(i)]['Index']] = i
-        for i in range(len(temdic.keys())):
-            self.keylist.append(temdic[i])
+        for i, k in zip(range(len(temdic.keys())), temdic.keys()):
+            self.keylist.append(temdic[k])
             self.indexlist.append(temdicindex[i])
     def rebuildCuekeylist(self):
-        self.cuekeylist = []
         self.Cueindexlist = []
-        temdic = {}
         temdicindex = {}
         for i in self.Cues.keys():
-            temdic[self.Cues['{0}'.format(i)]['Index']] = self.Cues[i]['Name']
             temdicindex[self.Cues['{0}'.format(i)]['Index']] = i
-        for i in range(len(temdic.keys())):
-            self.cuekeylist.append(temdic[i])
+        for i in range(len(temdicindex.keys())):
             self.Cueindexlist.append(temdicindex[i])
-    def runtime(self):
+    def RunTime(self):
         return self.FullRunTime
-    def SetStartTime(self, cname, t):
-        self.Cues[cname]['starttime']= t
     def getcue(self, cue):
         cuename = None
         for c in self.Cues.keys():
@@ -473,30 +461,34 @@ class Schedular():
     def SetVideos(self, cue):
         cuename = self.getcue(cue)
         if cuename:
-            for vname in  self.Videodict.keys():
+            for vname in self.Videodict.keys():
                 if self.Videodict[vname]["Filters"]:
-                    self.Videodict[vname]["Filters"].update(self.Cues[cuename]["Filters"])
+                    NewFilters = dict(self.Cues[cuename]["Filters"][vname])
+                    self.Videodict[vname]["Filters"].update(NewFilters)
                 elif self.Cues[cuename]["Filters"].get(vname):
-                    self.Videodict[vname]["Filters"] = self.Cues[cuename]["Filters"].get(vname)
-                    if self.Cues[cuename]["Filters"][vname]['State'] == 1:
-                        self.Videodict[vname]['StartTime'] = time.time()
-                    self.Videodict[vname]["State"] = self.Cues[cuename]["Filters"][vname]['State']
-        else:
-            n = 3
+                    self.Videodict[vname]["Filters"] = dict(self.Cues[cuename]["Filters"].get(vname))
+                if self.Cues[cuename]["Filters"][vname]['State'] == 0:
+                    self.Videodict[vname]['StartTime'] = time.time()
+                temp = int(self.Cues[cuename]["Filters"][vname]['State'])
+                self.Videodict[vname]["State"] = temp
+                if 'Repeat' in cuename:
+                    tmp = []
+                    for x in self.Cues[cuename]['Repeated']:
+                        tmp.append(x)
+                    self.Videodict[vname]['Repeated'] = tmp
 
     def Reload(self, vname):
-        self.Videodict[vname]['Video'].Seek(self.Videodict[vname]['StartFrame'])
+        self.Videodict[vname]['Video'].Seek(0)
     def ReloadAll(self):
-        self.FullRunTime = 0
         for vname in self.Videodict.keys():
             self.Reload(vname)
             self.Videodict[vname]["Filters"] = None
             self.Videodict[vname]['StartTime'] = None
             self.Videodict[vname]['Video'].lastframeid = 0
-
-    def AdvanceCue(self):
-        if TheSchedular.Cueindex <= self.StagedCue:
-            glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
+    
+    def Reset(self):
+        if self.Cueindex < self.StagedCue:
+            # glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
             self.PlayVideo = False
             self.startvideo = False
             self.Pause = False
@@ -504,19 +496,34 @@ class Schedular():
             self.ActiveCue = 0
             self.ReloadAll()
             self.SetVideos(self.ActiveCue)
+            return True
         else:
+            return False
+
+
+    def AdvanceCue(self):
+        if not self.Reset():
             self.PlayVideo = True
             self.startvideo = True
             self.Pause = False
+            self.starttime = time.time()
+            self.runtime = 0.0
             tmp = self.StagedCue + 1
-            self.ActiveCue = self.StagedCue
+            if self.Cueindex > self.StagedCue:
+                self.ActiveCue = self.StagedCue
+                self.SetVideos(self.ActiveCue)
+            else:
+                for vname in self.Videodict.keys():
+                    self.Videodict[vname]["Filters"]['State'] = 2
             self.StagedCue = tmp
-            self.SetVideos(self.ActiveCue)
+            
+    def AdvanceCueFake(self):
+        if not self.Reset():
+            self.Pause = True
             
 
 #imgui Setup
 m = get_monitors()
-# ctx.init(m[0].width, m[0].height, "SimplyCued")
 
 FirstWindow = imgui.Vec2(int(m[0].width*1.25), int(m[0].height*1.25))
 
@@ -537,27 +544,21 @@ if not window:
     print("Could not initialize Window")
     exit(1)
 
-# def windowResize(windo, inx, iny):
-#     w, h = glfw.get_framebuffer_size(windo)
-#     gl.glViewport(0, 0, w, h)
-
-# glfw.set_window_size_callback(window, windowResize)
-
 impl = GlfwRenderer(window)
 
 TheSchedular = Schedular()
 
 Debug = None
-# Debug = True
+Debug = True
 
 #Screen
 # ##### More then one screen?
 Screen = None
 playtime= 0
-runtime = 0.0
-starttime = time.time()
 curenttime=0
 accuracy =5
+
+
 
 
 def Load(self, file):
@@ -566,6 +567,7 @@ def Load(self, file):
     dill.dump(TheSchedular, f)
     dill.dump(playtime, f)
     f.close()
+
 # def Save(file):
 #     f = open(file, "r")
 #     TheSchedular = dill.load(f)
@@ -593,45 +595,53 @@ while(not glfw.window_should_close(window)):
     impl.process_inputs()
 
     if TheSchedular.PlayVideo:
-        glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
-        if TheSchedular.startvideo:
-            TheSchedular.SetVideos(TheSchedular.ActiveCue)
+        # glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
+        if TheSchedular.startvideo and TheSchedular.Cueindex >= TheSchedular.StagedCue:
+            # TheSchedular.SetVideos(TheSchedular.ActiveCue)
             TheSchedular.startvideo = False
-            starttime = time.time()
             playtime = 0
 
         if TheSchedular.active(): 
-            if TheSchedular.runtime() > runtime:
-                pl = 0
-                TheSchedular.VideoPlaylist(False)
-                runtime = time.time() - starttime
-            else:
-                glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
-                TheSchedular.startvideo=True
-                TheSchedular.PlayVideo = False
-                TheSchedular.Pause = False
+            if not TheSchedular.Pause:
+                if TheSchedular.RunTime() > TheSchedular.runtime or TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue)]['StartCondition'] == 'Repeat':
+                    pl = 0
+                    TheSchedular.VideoPlaylist(0)
+                    TheSchedular.runtime = time.time() - TheSchedular.starttime
 
-        if TheSchedular.Cueindex-1 > TheSchedular.ActiveCue:
-            NextCue = TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue+1)]
-            if NextCue['StartCondition'] == 'Click':
-                if imgui.is_mouse_clicked(0, False):
-                    AdvanceCue()
-            elif NextCue['StartCondition'] == 'Key':
-                if imgui.is_key_pressed(0,False): # is_key_down(,):
-                    AdvanceCue()
-            elif NextCue['StartCondition'] == 'Repeat':
-                if Repeated <= NextCue['Repeat']:
-                    AdvanceCue()
-            elif NextCue['StartCondition'] == 'Time':
-                if playtime >= NextCue['starttime'] - NextCue['RunTime']:
-                    AdvanceCue()
-            elif NextCue['StartCondition'] == 'Transition':
-                ##### https://stackoverflow.com/questions/28650721/cv2-python-image-blending-fade-transition
+                else:
+                    # glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
+                    TheSchedular.startvideo=True
+                    TheSchedular.PlayVideo = False
+                    TheSchedular.Pause = False
 
-                # fading
-                # sliding in/out
-                # pushing in/out
+        if not imgui.is_mouse_down(0):
+            TheSchedular.mouse = True
+        # stop on mouse click, 
+        if TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue)]['StartCondition'] == 'StopOnClick' and not TheSchedular.Pause and TheSchedular.mouse:
+            if imgui.is_mouse_down(0):
+                TheSchedular.AdvanceCueFake()
+                TheSchedular.mouse = False
+        elif TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue)]['StartCondition'] == 'Time': 
+            # play for n seconds or milliseconds
+            scale = 1/1000
+            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'][1] == "Seconds":
+                scale = 1
+            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'][0]*scale  <= TheSchedular.runtime:
                 TheSchedular.AdvanceCue()
+        elif TheSchedular.mouse:
+            if TheSchedular.Cueindex-1 > TheSchedular.ActiveCue:
+                NextCue = TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue+1)]
+                if NextCue['StartCondition'] == 'Transition':
+                    ##### https://stackoverflow.com/questions/28650721/cv2-python-image-blending-fade-transition
+                    # ##### Not Finished######
+                    # fading
+                    # sliding in/out
+                    # pushing in/out
+                    TheSchedular.AdvanceCue()
+        # play on mouse click, 
+        if imgui.is_mouse_down(0) and TheSchedular.mouse:
+            TheSchedular.AdvanceCue()
+            TheSchedular.mouse = False
     else:
 
         imgui.new_frame()
@@ -641,7 +651,6 @@ while(not glfw.window_should_close(window)):
         imgui.begin("Simply Cued", False, imgui.WINDOW_MENU_BAR)
         if imgui.begin_menu_bar():
             if imgui.begin_menu('Menu', True):
-                # imgui.show_style_selector("Style")
                 if imgui.selectable('Style')[0]:
                     TheSchedular.ShowStyle = True
                 if imgui.selectable('Help')[0]:
@@ -655,9 +664,14 @@ while(not glfw.window_should_close(window)):
             imgui.same_line()
             if imgui.button(n):
                 TheSchedular.initCue(n, "New{0}".format(n))
+        imgui.same_line()
+        if imgui.button("Delete Cue"):
+            TheSchedular.removeCue(TheSchedular.ActiveCue)
+            if TheSchedular.ActiveCue != 0 :
+                TheSchedular.ActiveCue = TheSchedular.ActiveCue-1
         imgui.end_child()
         imgui.begin_child("Cued", TheSchedular.Inercuesize.x, TheSchedular.Inercuesize.y, border=True)
-        if not len(TheSchedular.cuekeylist) > 0:
+        if not len(TheSchedular.Cueindexlist) > 0:
             imgui.text("No Cues")
         else:
             imgui.columns(2, "Cued Videos", True)
@@ -672,25 +686,26 @@ while(not glfw.window_should_close(window)):
             quemove_from = -1
             quemove_to = -1
             queindex = -1
-            for cu in TheSchedular.cuekeylist:
+            for cu in TheSchedular.Cueindexlist:
                 imgui.text("{0}. ".format(queindex+1))
                 imgui.next_column()
                 queindex=queindex+1
                 if TheSchedular.ActiveCue == queindex:
-                    if TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name']:
-                        imgui.same_line(spacing=50)
-                        if imgui.button('{0} {1}'.format(queindex,TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name'])):
-                            TheSchedular.ActiveCue = queindex
-                    else:
-                        if imgui.button('{0} {1}'.format(queindex,TheSchedular.Cueindexlist[queindex])):
-                            TheSchedular.ActiveCue = queindex
+                    imgui.same_line(spacing=50)
+                    if imgui.button('{0} {1}'.format(queindex,TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name'])):
+                        TheSchedular.ActiveCue = queindex
+                    if queindex > 0:
+                        imgui.same_line()
+                        if imgui.button('^'):
+                            TheSchedular.MoveCue(queindex,queindex-1)
+                    if queindex+1 < TheSchedular.Cueindex:
+                        imgui.same_line()
+                        if imgui.button('v'):
+                            TheSchedular.MoveCue(queindex,queindex+1)
+
                 else:
-                    if TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name']:
-                        if imgui.button('{0} {1}'.format(queindex,TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name'])):
-                            TheSchedular.ActiveCue = queindex
-                    else:
-                        if imgui.button('{0} {1}'.format(queindex,TheSchedular.Cueindexlist[queindex])):
-                            TheSchedular.ActiveCue = queindex
+                    if imgui.button('{0} {1}'.format(queindex,TheSchedular.Cues[TheSchedular.Cueindexlist[queindex]]['Name'])):
+                        TheSchedular.ActiveCue = queindex
                 
                 # if imgui.core.BeginDragDropSource():
                 #     if (not(imgui.DRAG_DROP_SOURCE_NO_DISABLE_HOVER and imgui.DRAG_DROP_SOURCE_NO_HOLD_TO_OPEN_OTHERS)):# and imgui.DragDropFlags.SourceNoPreviewTooltip)):
@@ -708,6 +723,7 @@ while(not glfw.window_should_close(window)):
                 #     quemove_from = -1
                 #     quemove_to = -1   
                 imgui.next_column()
+                
 
         imgui.end_child()
 
@@ -745,10 +761,20 @@ while(not glfw.window_should_close(window)):
                 for vid in TheSchedular.indexlist:
                     imgui.text("{0}. ".format(index+1))
                     imgui.next_column()
-                    index=index+1
+                    index=index+1 
+                    
                     if imgui.button('{0}{1}'.format(index,TheSchedular.Videodict[TheSchedular.indexlist[index]]['Name'])):
                         TheSchedular.SelectedVideo = vid
                         TheSchedular.selectedindex = index
+                    if index == TheSchedular.selectedindex:
+                        if index > 0:
+                            imgui.same_line()
+                            if imgui.button('^'):
+                                TheSchedular.MoveVideo(index,index-1)
+                        if index+1 < len(TheSchedular.indexlist):
+                            imgui.same_line()
+                            if imgui.button('v'):
+                                TheSchedular.MoveVideo(index,index+1)
                     # if imgui.begin_drag_drop_source(imgui.DragDropFlags.__flags__):
                     #     if (not(imgui.DragDropFlags.SourceNoDisableHover and imgui.DragDropFlags.SourceNoHoldToOpenOthers)):# and imgui.DragDropFlags.SourceNoPreviewTooltip)):
                     #         imgui.text("Moving \"%s\"", vid)
@@ -775,7 +801,7 @@ while(not glfw.window_should_close(window)):
                         Filterkeys = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"].keys()
                     blockindex = -1
                     if imgui.selectable('{0} Edit Filters'.format(TheSchedular.movieindex))[0]:
-                        TheSchedular.EditInfo = TheSchedular.movieindex
+                        TheSchedular.EditInfo = TheSchedular.indexlist[TheSchedular.movieindex]
                         TheSchedular.EditFilters = True
                         TheSchedular.SetVideos(TheSchedular.ActiveCue)
                     TheSchedular.movieindex = TheSchedular.movieindex + 1
@@ -784,12 +810,12 @@ while(not glfw.window_should_close(window)):
                     if len(Filterkeys) > 0:
                         for fill in Filterkeys:
                             blockindex = blockindex + 1
-                            tp = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill].get('videoindex')
-                            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill].get('videoindex') or TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill].get('videoindex') == 0:
-                                if index == TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill]['videoindex']:
-                                    imgui.new_line()
-                                    imgui.same_line(spacing=50)
-                                    imgui.text(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill]['Name'])
+                            if TheSchedular.movieindex == TheSchedular.indexlist.index(fill):
+                                for filt in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill].keys():
+                                    if "State" not in filt:
+                                        imgui.new_line()
+                                        imgui.same_line(spacing=50)
+                                        imgui.text(filt)
 
                     imgui.next_column()
                     if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"]:
@@ -797,15 +823,6 @@ while(not glfw.window_should_close(window)):
                             for st in TheSchedular.State:
                                 if imgui.selectable(st)[0]:
                                     TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][vid]['State'] = TheSchedular.State.index(st)
-                            imgui.end_menu()
-                    else:
-                        if imgui.begin_menu("{0} Unchanged".format(index), True):
-                            for st in TheSchedular.State:
-                                if imgui.selectable(st)[0]:
-                                    if vid in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"]:
-                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][vid]['State'] = TheSchedular.State.index(st)
-                                    else:
-                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"].update({vid:{'State': TheSchedular.State.index(st)}})
                             imgui.end_menu()
                     imgui.next_column()
             imgui.end_child()
@@ -899,100 +916,133 @@ while(not glfw.window_should_close(window)):
         if imgui.button("Go", 50, 50):
             TheSchedular.AdvanceCue()
 
-        if TheSchedular.EditFilters:
-            glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
+        if TheSchedular.EditFilters and len(TheSchedular.Cueindexlist) > 0:
+            # glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
             videopath1 = None
             ret = -1
             imgui.set_next_window_position(TheSchedular.searchwindow.x,TheSchedular.searchwindow.y , imgui.ONCE)
             imgui.set_next_window_size(TheSchedular.searchwindowsize.x, TheSchedular.searchwindowsize.y, imgui.ONCE)
             TheSchedular.EditFilters = imgui.begin("Edit", True)[1]
-            imgui.text("Cue {0} Video {1}".format(TheSchedular.ActiveCue, TheSchedular.indexlist[TheSchedular.EditInfo]))
-            if imgui.begin_menu('Add'):
-                for fil in TheSchedular.Filter:
-                    if fil not in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"].keys():
-                        if imgui.selectable('Add {0}'.format(fil))[0]:
-                            TheSchedular.AddVPLBlock(TheSchedular.EditInfo, fil, TheSchedular.ActiveCue, blockindex)
-                imgui.end_menu()
+            imgui.text("Cue {0} Video {1}".format(TheSchedular.ActiveCue, TheSchedular.EditInfo))
             
-            filterslist = []
-            for k in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"].keys():
-                filterslist.append(k)
+            filterslist = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"].keys()
             for filt in filterslist:
-                if not TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt].get('videoindex', True):
-                    if TheSchedular.EditInfo == TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]['videoindex']:
-                        for x in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt].keys():
-                            if x not in "Index Menu videoindex name".split():
-                                #There isn't a filter named State
-                                if x == "State":
-                                    if imgui.radio_button(x,TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]):
-                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = True
-                        if "Color" in filt:
-                            for col in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]["Data"]:
+                if TheSchedular.EditInfo == filt:
+                    if imgui.begin_menu("Add"):
+                        for f in "SlideIn SlideOut".split():
+                            if f not in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt].keys():
+                                if imgui.selectable(f)[0]:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f] = {}
+                        imgui.end_menu()
+                    if 'Time' in TheSchedular.Cueindexlist[TheSchedular.ActiveCue]:
+                        if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]].get('RunTime') != None:
+                            if imgui.begin_menu("{0}".format(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'][1])):
+                                for mas in "Seconds Milliseconds".split():
+                                    if imgui.selectable(mas)[0]:
+                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'][1] = mas
+                                imgui.end_menu()
+                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'][0] = imgui.input_float("Total RunTime",TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'][0],1,60)[1]
+
+                        else:
+                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['RunTime'] = [0, "Seconds"]
+                        
+                    elif 'Repeat' in TheSchedular.Cueindexlist[TheSchedular.ActiveCue]:
+                        chang, respval = imgui.input_int("Repeate",TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Repeated'][1],1)
+                        if chang:
+                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Repeated'][1] = respval
+
+                    for x in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt].keys():
+                        if "Color" in x:
+                            for col in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]["Data"]:
                                 imgui.new_line()
                                 imgui.same_line(spacing=50)
                                 if col == "Nagitive":
-                                    if imgui.radio_button(col,TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]['Data'][col]):
-                                        if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]["Data"][col]:
-                                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]["Data"][col] = False
+                                    if imgui.radio_button("Swap GR",TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][col]):
+                                        if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]["Data"][col]:
+                                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]["Data"][col] = False
                                         else:
-                                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]["Data"][col] = True
+                                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]["Data"][col] = True
                                 else:
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]["Data"][col] = imgui.slider_float(col,TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt]['Data'][col][1],0, 1,'%.3f', 1.0)
-                        elif "mvMatrix" in filt:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]["Data"][col] = imgui.slider_float(col,TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][col][1],0, 1,'%.3f', 1.0)
+                        elif "mvMatrix" in x:
                             imgui.new_line()
                             imgui.same_line(spacing=50)
                             if imgui.button("Reset Video Position"):
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = -1
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = -1
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0] = 2
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5] = 2
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] = -1
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] = -1
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0] = 2
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5] = 2
                             w, h = glfw.get_framebuffer_size(window)
                             if imgui.is_mouse_down(0):
                                 pos = imgui.get_mouse_pos()
 
                                 posx = (pos[0]/w*2)-1
-                                h1 = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12]
-                                h2 = h1+TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
+                                h1 = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12]
+                                h2 = h1+TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0]
                                 posy = -1*((pos[1]/h*2)-1)
-                                h3 = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13]
-                                h4 = h3+TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                h3 = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13]
+                                h4 = h3+TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5]
                                 difx = 0
                                 dify = 0
 
-                                if posx > h1*.75 and posx < h2*.75 and posy > h3*.75 and posy < h4*.75:
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] =  posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]/2
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] =  posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]/2 
+                                if posx > h1*.5 and posx < h2*.5 and posy > h3*.5 and posy < h4*.5:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] =  posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0]/2
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] =  posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5]/2 
                                 
                                 elif abs(posx - h1) < .2 and abs(posy - h3) < .2:
-                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx
-                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy
+                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] - posx
+                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] - posy
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] = posx
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] = posy
                                 elif abs(posx - h2) < .2 and abs(posy - h4) < .2:
-                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx
-                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                    difx = posx - h2
+                                    dify = posy - h4
                                 elif abs(posx - h1) < .2 and abs(posy - h4) < .2:
-                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx
-                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
-                                    
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5]
+                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] - posx
+                                    dify = posy - h4                 
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] = posx
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] = posy - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5]
                                 elif abs(posx - h2) < .2 and abs(posy - h3) < .2:
-                                    difx = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] - posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
-                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] - posy
+                                    difx = posx - h2
+                                    dify = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] - posy
                                     
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][12] = posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0]
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][13] = posy
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][0] + difx
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][TheSchedular.indexlist[TheSchedular.EditInfo]][filt]['Data'][5] + dify
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][12] = posx - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0]
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] = posy
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0] + difx
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5] + dify
+                        elif "Mask" in x:
+                            # ##### Not Finished######
+                            #rectangle, circle, and a straight line select area
+                            points = []
+                        elif "Slide" in x:
+                            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] != {}:
+                                imgui.text('Configure {0}'.format(x))
+                                for poit in "x".split():
+                                    imgui.new_line()
+                                    imgui.same_line(spacing=50)
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][2] = imgui.input_float("Rate of change for {0}".format(poit),TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][2],1,10)[1]
+                                    buton = False
+                                    if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][1] > 0:
+                                        buton = True
+                                    imgui.new_line()
+                                    imgui.same_line(spacing=50)                                    
+                                    if imgui.radio_button("Reverse {0} direction".format(poit),buton):
+                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][1] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][1] * -1
+                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][0] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][poit][0] * -1
+                            else:
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = {'x':[2,1,0]}
                         else:
-                            imgui.selectable(filt)[0]
+                            if x not in "Name".split():
+                                if x == "State":
+                                    imgui.new_line()
+                                    imgui.same_line(spacing=50)
+                                    if imgui.begin_menu("{0}".format(x)):
+                                        for st in TheSchedular.State:
+                                            if imgui.selectable(st)[0]:
+                                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = TheSchedular.State.index(st)
+                                        imgui.end_menu()
             TheSchedular.SetVideos(TheSchedular.ActiveCue)
-            TheSchedular.VideoPlaylist(True)
-            if not TheSchedular.EditFilters:
-                glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)        
+            TheSchedular.VideoPlaylist(2)      
             imgui.end()
 
         if Debug is not None:
@@ -1005,16 +1055,6 @@ while(not glfw.window_should_close(window)):
             if imgui.button("Add Test Cue"):
                 TheSchedular.initCue("Click", "Click")
                 TheSchedular.initVideo("D:\\Documents\\GradSchool\\Grad Project\\VideoEditor\\Sample Video\\jellyfish-100-mbps-hd-h264.mkv")
-
-            if imgui.button("Reset", 50, 50):
-                glfw.set_window_monitor(window, None, 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
-                TheSchedular.PlayVideo = False
-                TheSchedular.startvideo = True
-                TheSchedular.Pause = False
-                TheSchedular.ActiveCue = 0
-                TheSchedular.StagedCue = 1
-                TheSchedular.ReloadAll()
-                TheSchedular.SetVideos(TheSchedular.ActiveCue)
 
         imgui.end()
         
