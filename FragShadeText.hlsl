@@ -11,6 +11,7 @@ out vec4 FragColor;
 void main(void){
     
     FragColor = texture(samTex, fTex);
+
     if(fNgt > 0){
         FragColor = FragColor.yxzw;
     }
