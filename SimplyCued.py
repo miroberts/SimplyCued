@@ -9,6 +9,7 @@ from PIL import Image as Img
 import numpy as np
 from mathutils import Matrix
 # import psutil 
+import math
 import dill   #save and load data in memory
 from pathlib import Path
 from screeninfo import get_monitors
@@ -88,10 +89,28 @@ class Renderer():
         self.vTex = gl.glGetAttribLocation(self.program, "vTex")
 
         self.vNgt = gl.glGetAttribLocation(self.program, "vNgt")
+        # self.vColor = gl.glGetAttribLocation(self.program, "vColor")
+        # self.vDistortion = gl.glGetAttribLocation(self.program, "vDistortion")
+        # self.vSize = gl.glGetAttribLocation(self.program, "vSize")
+        # self.vRadius = gl.glGetAttribLocation(self.program, "vRadius")
+        # self.vFade = gl.glGetAttribLocation(self.program, "vFade")
+        # self.VFade = gl.glGetAttribLocation(self.program, "VFade")
+
+        # self.vCenter = gl.glGetAttribLocation(self.program, "vCenter")
+        # self.vPoints = gl.glGetAttribLocation(self.program, "vPoints")
+        
         
         gl.glEnableVertexAttribArray(self.vPos)
         gl.glEnableVertexAttribArray(self.vTex)
-        
+        gl.glEnableVertexAttribArray(self.vNgt)
+        # gl.glEnableVertexAttribArray(self.vColor)
+        # gl.glEnableVertexAttribArray(self.vDistortion)
+        # gl.glEnableVertexAttribArray(self.vSize)
+        # gl.glEnableVertexAttribArray(self.vRadius)
+        # gl.glEnableVertexAttribArray(self.vFade)
+        # gl.glEnableVertexAttribArray(self.VFade)
+        # gl.glEnableVertexAttribArray(self.vCenter)
+        # gl.glEnableVertexAttribArray(self.vPoints)
 
         self.projectionMatrix = gl.glGetUniformLocation(self.program, "projection")
         self.modelViewMatrix = gl.glGetUniformLocation(self.program, "modelView")
@@ -104,39 +123,88 @@ class Renderer():
 
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
-
-
-
         
 
     def rend(self, frame, Data, frameidex, frametotal, fps):
+        gl.glUseProgram(self.program)
         scalerx = 0
+        Center = [0,0]
+        Radius = 0.0
+        size = 1.0
+        fade = 0.0
+        Points = [0]
+        faderate = 0.0
+        nagative =0.0
+        blue = 0.0
+        green = 0.0
+        red = 0.0
+        alpha = 0.0
+        distortion = 0.0
+
         if Data.get('SlideIn'):
             if Data['SlideIn'][0] > 0:
                 scalerx = Data['SlideIn'][0] * Data['SlideIn'][1] # -1 or 1
                 Data['SlideIn'][0] = Data['SlideIn'][0] - Data['SlideIn'][2]
         if Data.get('SlideOut'):
-            xrate = (Data['SlideOut'][2]/fps)*frametotal
-            if Data['SlideOut'][0] > 0:
-                scalerx = Data['SlideOut'][0] * Data['SlideOut'][1] # -1 or 1
-                Data['SlideOut'][0] = Data['SlideOut'][0] - Data['SlideOut'][2] # rate of change
-
-        gl.glUseProgram(self.program)
+            if Data['SlideOut'][2] > 0:
+                if frameidex >= frametotal - (2/Data['SlideOut'][2]):
+                    scalerx = Data['SlideOut'][0] * Data['SlideOut'][1] # -1 or 1
+                    Data['SlideOut'][0] = Data['SlideOut'][0] + Data['SlideOut'][2] # rate of change
+        
         mvMatrix=[]
         for da in Data.keys():
             if 'mvMatrix' in da:
                 mvMatrix = copy.deepcopy(Data[da]['Data'])
                 mvMatrix[12] = copy.deepcopy(scalerx + Data[da]['Data'][12])
-            if 'Color' in da:
+            elif 'Color' in da:
                 if Data[da]['Data']['Nagitive']:
-                    gl.glUniform4fv(self.vNgt, 1, 1.0)
-                else:
-                    gl.glUniform4fv(self.vNgt, 1, 0.0)
+                    nagative = 1.0
+                blue = (.5 - Data[da]['Data']['Blue'][1]) *-1
+                green = (.5 - Data[da]['Data']['Green'][1]) *-1
+                red = (.5 - Data[da]['Data']['Red'][1]) *-1
+                alpha = (.5 - Data[da]['Data']['Alpha'][1]) *-1
+                distortion = Data[da]['Data']['Distortion'][1]
+                
+            elif 'Mask' in da:
+                size = len(Data[da]['Points'])
+                if size > 1:
+                    Center = Data[da]['Center']
+                    Radius = Data[da]['Radius']
+                    Points = Data[da]['Points']
+
+        # gl.glEnable(gl.GL_BLEND)
+        # gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+        if Data.get('FadeIn'):
+            if Data['FadeIn'][0] <= 1:
+                Data['FadeIn'][0] = Data['FadeIn'][0] + Data['FadeIn'][1]
+            alpha = Data['FadeIn'][0]
+            if Data.get('Color'):
+                if Data['FadeIn'][0] >= Data['Color']['Data']['Alpha'][1]:
+                    Data['FadeIn'][0] = 1
+                    alpha = Data['Color']['Data']['Alpha'][1]
+                
+        if Data.get('FadeOut'): 
+            if Data['FadeOut'][1] > 0:
+                if frameidex >= frametotal - (1/Data['FadeOut'][1]):
+                    Data['FadeOut'][0] = Data['FadeOut'][0] - Data['FadeOut'][1]
+                    alpha = Data['FadeOut'][0]
+
 
         gl.glUniformMatrix4fv(self.modelViewMatrix, 1, gl.GL_FALSE, mvMatrix)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.buff)
         gl.glVertexAttribPointer(self.vPos, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
         gl.glVertexAttribPointer(self.vTex, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
+
+        gl.glVertexAttrib1f(self.vNgt, nagative)
+        # gl.glUniform4fv(self.vColor, red, blue, green, alpha)
+        # gl.glVertexAttrib1f(self.vDistortion, distortion)
+        # gl.glVertexAttrib1f(self.vSize, size)
+        # gl.glVertexAttrib1f(self.vRadius, Radius)
+        # gl.glVertexAttrib1f(self.vFade, fade)
+        # gl.glVertexAttrib1f(self.VFade, faderate)
+        # gl.glUniform2fv(self.vCenter, 1, Center)
+        # gl.glUniform2fv(self.vPoints, size, Points)
 
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.texture)
         txFrame = Img.fromarray(frame)
@@ -260,6 +328,7 @@ class Schedular():
     rescan = False
     Error = False
     selectedindex = None
+    EditMask = False
     Repeat = 0
     mouse = True
     starttime = time.time()
@@ -276,7 +345,7 @@ class Schedular():
                 0.0, 2,  0.0, 0.0,
                 0.0, 0.0,  1.0, 0.0,
                 -1.0, -1.0, 0.0, 1.0], np.float32))
-            self.AddVPLBlock(vid, 'Color', self.Cueindex, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Distortion" : [0,0.0], "Nagitive": False})
+            self.AddVPLBlock(vid, 'Color', self.Cueindex, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], 'Alpha': [0,.5], "Distortion" : [0,0.0], "Nagitive": False})
 
         self.Cueindex = self.Cueindex+1
         self.rebuildCuekeylist()
@@ -302,7 +371,7 @@ class Schedular():
                     0.0, 2.0,  0.0, 0.0,
                     0.0, 0.0,  1.0, 0.0,
                     -1.0, -1.0, 0.0, 1.0], np.float32))
-                self.AddVPLBlock("{0}{1}".format(cuedvideo.name, self.index), 'Color', cu, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5], "Distortion" : [0,0.0], "Nagitive": False})
+                self.AddVPLBlock("{0}{1}".format(cuedvideo.name, self.index), 'Color', cu, {"Red": [0,.5] , "Green": [0,.5], "Blue" : [0,.5],  'Alpha': [0,.5], "Distortion" : [0,0.0], "Nagitive": False})
             self.index = self.index+1
             self.FullRunTime = self.FullRunTime + cuedvideo.duration
             self.rebuildVideokeylist()
@@ -357,37 +426,21 @@ class Schedular():
         self.Cues[cue]['Filters'][self.indexlist[vid]]['Index'] = Destination
 
     def VideoPlaylist(self, edit):
+        returned = 0
         for x in self.indexlist:
             frame = None
             if edit > 0 and (self.Videodict[x]['State'] == 0 or self.Videodict[x]['State'] == 1):
                 self.renderer.rend(self.Videodict[x]['Video'].firstimage,self.Videodict[x]["Filters"], 0, self.Videodict[x]['Video'].frame_count, self.Videodict[x]['Video'].fps)
+                returned = returned + 1
             elif not edit:
                 if self.Videodict[x].get("Filters"):
                     if self.Videodict[x]["Filters"]['State'] == 0:#0 = get next frame
                         f = int((time.time() - self.Videodict[x]['StartTime'] + self.Videodict[x]['PlayOffset']) * self.Videodict[x]['Video'].fps)
                         if f >=0 and f <=  self.Videodict[x]['Video'].frame_count:
-                            if self.Videodict[x].get('FadeIn'):
-                                #not per video...
-                                ##### https://stackoverflow.com/questions/28650721/cv2-python-image-blending-fade-transition
-                                # ##### Not Finished######
-                                n = 1
-                            if self.Videodict[x].get('PushOut'):
-                                #not per video...
-                                ##### https://stackoverflow.com/questions/28650721/cv2-python-image-blending-fade-transition
-                                # ##### Not Finished######
-                                n = 1
-                            if self.Videodict[x].get('PushIn'):
-                                #not per video...
-                                # ##### Not Finished######
-                                n = 1
-                            if self.Videodict[x].get('PushOut'):
-                                #not per video...
-                                # ##### Not Finished######
-                                n = 1
-
                             frame =  self.Videodict[x]['Video'].nextframe(f)
                             if frame is not None:
                                 self.renderer.rend(frame,self.Videodict[x]["Filters"], f,self.Videodict[x]['Video'].frame_count, self.Videodict[x]['Video'].fps)
+                                returned = returned + 1
                             elif self.Videodict[x]['Repeat'][1] > 0 and self.Videodict[x]['Repeat'][1] > self.Videodict[x]['Repeat'][0]: 
                                 # play n number of times,
                                 self.Videodict[x]['Video'].Seek(0)
@@ -395,20 +448,20 @@ class Schedular():
                                 self.Videodict[x]['StartTime'] = time.time()
                                 self.Videodict[x]['Video'].lastframeid = 0
                                 self.renderer.rend(self.Videodict[x]['Video'].firstimage,self.Videodict[x]["Filters"],self.Videodict[x]['Video'].lastframeid, self.Videodict[x]['Video'].frame_count, self.Videodict[x]['Video'].fps)
+                                returned = returned + 1
                                 self.Videodict[x]['Repeat'][0] = self.Videodict[x]['Repeat'][0] + 1
                             else: 
                                 self.Videodict[x]["Filters"]['State'] = 2
                                 self.Videodict[x]['Video'].Seek(0)
                                 self.Videodict[x]['Video'].lastframe = self.Videodict[x]['Video'].firstimage
-
-
-
                                 
                     elif self.Videodict[x]["Filters"]['State'] == 1:#1 == paused video
                         if self.Videodict[x]['Video'].lastframe is not None:
                             frame = self.Videodict[x]['Video'].lastframe
                             self.renderer.rend(frame,self.Videodict[x]["Filters"])
+                            returned = returned + 1
                 #else 2 means off
+        return returned
 
     def removeVideo(self,viid):
         removekey = {}
@@ -535,7 +588,103 @@ class Schedular():
             
     def AdvanceCueFake(self):
         if not self.Reset():
-            self.Pause = True        
+            self.Pause = True      
+
+    # This has been modified from the code found here
+    # http://geomalgorithms.com/a03-_inclusion.html
+    # Copyright 2000 softSurfer, 2012 Dan Sunday
+    # This code may be freely used and modified for any purpose
+    # providing that this copyright notice is included with it.
+    # SoftSurfer makes no warranty for this code, and cannot be held
+    # liable for any real or imagined damage resulting from its use.
+    # Users of this code must verify correctness for their application.
+    
+    # fastBall(): get a fast approximation for the 2D bounding ball
+    #              (based on the algorithm given by [Jack Ritter, 1990])
+    #    Input:  an array P[] of n points (2D xy coords)
+    #    Output: a bounding ball = {Point center; float radius;}
+    def norm2(self, v):
+        return (v[0] * v[0] + v[1] * v[1]) #norm2 = squared length of vector
+        
+    def fastBall(self, vid):
+        n = len(self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'])
+        # Center of ball
+        C = []                          
+        # radius and radius squared
+        rad = 0.0  
+        rad2 = 0.0                 
+        # bounding box extremes
+        xmin = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][0][0]
+        xmax = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][0][0]
+        ymin = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][0][1] 
+        ymax = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][0][1]        
+        # index of  P[] at box extreme
+        Pxmin = 0
+        Pxmax = 0
+        Pymin = 0
+        Pymax = 0 
+
+        # find a large diameter to start with
+        # first get the bounding box and P[] extreme points for it
+        for i in range(n): 
+            if i < n: 
+                if (self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][0] < xmin):
+                    xmin = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][0]
+                    Pxmin = i
+
+                elif (self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][0] > xmax):
+                    xmax = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][0]
+                    Pxmax = i
+                
+                if (self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][1] < ymin):
+                    ymin = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][1]
+                    Pymin = i
+                
+                elif (self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][1] > ymax):
+                    ymax = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][1]
+                    Pymax = i
+                
+        # select the largest extent as an initial diameter for the  ball
+        dPx = [self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmax][0] - self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmin][0], self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmax][1] - self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmin][1]] # diff of Px max and min
+        dPy = [self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymax][0] - self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymax][0], self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymax][1] - self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymax][1]] # diff of Py max and min
+        dx2 = self.norm2(dPx) # Px diff squared
+        dy2 = self.norm2(dPy) # Py diff squared
+        if (dx2 >= dy2):                      # x direction is largest extent
+            cx = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmin][0] + (dPx[0] / 2.0)
+            cy = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmin][1] + (dPx[1] / 2.0)
+            C = [cx,cy]        # Center = midpoint of extremes
+            rad2 = self.norm2([self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmax][0] - C[0],self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pxmax][1] - C[1]])          # radius squared
+        
+        else:                                # y direction is largest extent
+            cx = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymin][1] + (dPy[1] / 2.0)
+            cy = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymin][1] + (dPy[1] / 2.0)
+            C = [cx, cy]          # Center = midpoint of extremes
+            rad2 = self.norm2([self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymax][0] - C[0], self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][Pymax][1] - C[1]]) # radius squared
+        
+        rad = math.sqrt(rad2)
+
+        # now check that all points P[i] are in the ball
+        # and if not, expand the ball just enough to include them
+        dP = []
+        dist = 0.0
+        dist2= 0.0
+        for i in range(n): 
+            if i < n:
+                dpx = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][0] - C[0]
+                dpy = self.Cues[self.Cueindexlist[self.ActiveCue]]['Filters'][vid]['Mask']['Points'][i][1] - C[1]
+                dP = [dpx,dpy]
+                dist2 = self.norm2(dP)
+                if (dist2 <= rad2):    # P[i] is inside the ball already
+                    continue
+                # P[i] not in ball, so expand ball to include it
+                dist = math.sqrt(dist2)
+                rad = (rad + dist) / 2.0         # enlarge radius just enough
+                rad2 = rad * rad
+                cx = C[0] + ((dist-rad)/dist) * dP[0]
+                cy = C[1] + ((dist-rad)/dist) * dP[1]
+                C = [cx,cy]    # shift Center toward P[i]
+        
+        return  C, rad
             
 
 #imgui Setup
@@ -576,7 +725,6 @@ accuracy =5
 
 
 
-
 def Load(self, file):
     # write a file
     f = open(file, "w")
@@ -609,19 +757,20 @@ while(not glfw.window_should_close(window)):
     gl.glClear(gl.GL_COLOR_BUFFER_BIT)
     glfw.poll_events()
     impl.process_inputs()
-
+    if not imgui.is_mouse_down(0):
+        TheSchedular.mouse = True
     if TheSchedular.PlayVideo:
         # glfw.set_window_monitor(window,glfw.get_primary_monitor(), 0,0, FirstWindow.x,FirstWindow.y,glfw.REFRESH_RATE)
         if TheSchedular.startvideo and TheSchedular.Cueindex >= TheSchedular.StagedCue:
             # TheSchedular.SetVideos(TheSchedular.ActiveCue)
             TheSchedular.startvideo = False
             playtime = 0
-
+        returned = 0
         if TheSchedular.active(): 
             if not TheSchedular.Pause:
                 if TheSchedular.RunTime() > TheSchedular.runtime or TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue)].get('Repeat'):
                     pl = 0
-                    TheSchedular.VideoPlaylist(0)
+                    returned = TheSchedular.VideoPlaylist(0)
                     TheSchedular.runtime = time.time() - TheSchedular.starttime
 
                 else:
@@ -630,8 +779,7 @@ while(not glfw.window_should_close(window)):
                     TheSchedular.PlayVideo = False
                     TheSchedular.Pause = False
 
-        if not imgui.is_mouse_down(0):
-            TheSchedular.mouse = True
+        
         # stop on mouse click, 
         if TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue)]['StartCondition'] == 'StopOnClick' and not TheSchedular.Pause and TheSchedular.mouse:
             if imgui.is_mouse_down(0):
@@ -645,6 +793,11 @@ while(not glfw.window_should_close(window)):
                     scale = 1
                 if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Time'][0]*scale  <= TheSchedular.runtime:
                         TheSchedular.AdvanceCue()
+        if TheSchedular.ActiveCue < len(TheSchedular.Cues.keys()) -1:
+            if 'PushOut' in TheSchedular.Cues[TheSchedular.getcue(TheSchedular.ActiveCue+1)].keys():
+                if returned == 0 and TheSchedular.RunTime() > 5:
+                    TheSchedular.AdvanceCue()
+
         # play on mouse click, 
         if imgui.is_mouse_down(0) and TheSchedular.mouse:
             TheSchedular.AdvanceCue()
@@ -820,7 +973,7 @@ while(not glfw.window_should_close(window)):
                                 blockindex = blockindex + 1
                                 if TheSchedular.movieindex == TheSchedular.indexlist.index(fill):
                                     for filt in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][fill].keys():
-                                        if "State" not in filt:
+                                        if "State" not in filt and 'Color' not in filt and "mvMatrix" not in filt:
                                             imgui.new_line()
                                             imgui.same_line(spacing=50)
                                             imgui.text(filt)
@@ -950,12 +1103,20 @@ while(not glfw.window_should_close(window)):
                                     TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Time'][1] = mas
                             imgui.end_menu()   
                     if imgui.begin_menu("Add Transition"):
-                        for f in "SlideIn SlideOut FadeIn FadeOut".split():
+                        for f in "SlideIn SlideOut FadeIn FadeOut PushOut".split():
                             if f not in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt].keys():
                                 if imgui.selectable(f)[0]:
-                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f] = {}
+                                    if f == "PushOut":
+                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]][f] = {}
+                                    else:
+                                        TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f] = {}
                         imgui.end_menu()
-                    
+                    if 'Mask' not in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt].keys():
+                        imgui.new_line()
+                        imgui.same_line(spacing=50)
+                        if imgui.button("Add Mask"):
+                            TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f] = {}
+                    w, h = glfw.get_framebuffer_size(window)
                     for x in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt].keys():
                         if 'Repeat' not in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]].keys():
                             TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Repeat'] = [0,0]
@@ -967,7 +1128,7 @@ while(not glfw.window_should_close(window)):
                             if chang:
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Repeat'][1] = respval
                                 
-                        elif "Color" in x:
+                        if "Color" in x:
                             for col in TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]["Data"]:
                                 imgui.new_line()
                                 imgui.same_line(spacing=50)
@@ -987,7 +1148,7 @@ while(not glfw.window_should_close(window)):
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][13] = -1
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0] = 2
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5] = 2
-                            w, h = glfw.get_framebuffer_size(window)
+                            
                             if imgui.is_mouse_down(0):
                                 pos = imgui.get_mouse_pos()
 
@@ -1026,9 +1187,51 @@ while(not glfw.window_should_close(window)):
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][0] + difx
                                 TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x]['Data'][5] + dify
                         elif "Mask" in x:
-                            # ##### Not Finished######
-                            #rectangle, circle, and a straight line select area
-                            points = []
+                            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f] == {}:
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f] = {'Points':[], 'Center':[0,0], 'Radius': 0}
+                            imgui.new_line()
+                            imgui.same_line(spacing=50)
+                            if not TheSchedular.EditMask:
+                                if  imgui.button("Edit Mask"):
+                                    TheSchedular.EditMask = True
+                                    TheSchedular.mouse = False
+                            else:
+                                if  imgui.button("Stop Editing Mask"):
+                                    TheSchedular.EditMask = False
+                                    TheSchedular.mouse = False
+                                imgui.same_line()
+                                if len(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points']) > 0:
+                                    if  imgui.button("Delete"):
+                                        TheSchedular.mouse = False
+                                        del TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][:-1]
+                                imgui.same_line()
+                                if imgui.button("Clear Points"):
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'] = []
+                                    TheSchedular.mouse = False
+                            if imgui.is_mouse_clicked(0) and TheSchedular.mouse and TheSchedular.EditMask:
+                                TheSchedular.mouse = False
+                                temp = None
+                                pos = imgui.get_mouse_pos()
+                                x = (pos[0]/w*2)-1
+                                y = posy = -1*((pos[1]/h*2)-1)
+                                for i in range(len(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'])):
+                                    distx = abs(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][i][0] - x)
+                                    disty = abs(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][i][1] - y)
+                                    if  distx < .2 and disty < .2:
+                                        temp = i
+                                if temp is not None:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][temp] = [x,y]
+                                else:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'].append([x,y])  
+                            if len(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points']) == 2:
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Center'] = [(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][0][0] + TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][1][0])/2, (TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][0][1] + TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][1][1])/2]
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Radius'] = math.sqrt(math.pow(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Center'][0] - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][0][0], 2) + math.pow(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Center'][1] - TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points'][0][1],2))
+
+                            elif len(TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Points']) > 2:
+                                cen , rad = TheSchedular.fastBall(filt)
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Center'] = list(cen)
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]['Filters'][filt][f]['Radius'] = float(rad)
+                                      
                         elif "Slide" in x:
                             if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] != {}:
                                 imgui.text('Configure {0}'.format(x))
@@ -1040,10 +1243,23 @@ while(not glfw.window_should_close(window)):
                                     buton = True
                                 imgui.new_line()
                                 imgui.same_line(spacing=50)                                    
-                                if imgui.radio_button("Reverse direction",buton):
+                                if imgui.radio_button("Move Right to Left",buton):
                                     TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][1] = TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][1] * -1
                             else:
-                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = [2,-1,0]
+                                if "In" in x:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = [2,-1,0]
+                                else:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = [0,1,0]
+                        elif "FadeIn" in x:
+                            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] != {}:
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][1] = imgui.input_float("Rate of change for {0}".format(x),TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][1],.001,.01)[1]
+                            else:
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = [0,0]
+                        elif "FadeOut" in x:
+                            if TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] != {}:
+                                    TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][1] = imgui.input_float("Rate of change for {0}".format(x),TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x][1],.001,.01)[1]
+                            else:
+                                TheSchedular.Cues[TheSchedular.Cueindexlist[TheSchedular.ActiveCue]]["Filters"][filt][x] = [1,0]
                         else:
                             if x not in "Name".split():
                                 if x == "State":
